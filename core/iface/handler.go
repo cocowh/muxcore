@@ -4,9 +4,17 @@
 
 package iface
 
-type Handler interface {
+import "bufio"
+
+type IOHandler interface {
+	Read(reader *bufio.Reader, b []byte) (int, error)
+	ReadData(reader *bufio.Reader) (int, any, error)
+	Write(writer *bufio.Writer, b []byte) (int, error)
+}
+
+type EventHandler interface {
 	OnConnect(conn Connection)
-	OnMessage(conn Connection, data []byte)
+	OnMessage(conn Connection, data any)
 	OnClose(conn Connection)
 	OnError(conn Connection, err error)
 }
