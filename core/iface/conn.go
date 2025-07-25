@@ -17,5 +17,6 @@ type Connection interface {
 	Write(b []byte) (int, error)
 	Close() error
 	Context() context.Context
-	SetHandler(handler Handler)
+	SetIOHandler(handler IOHandler)
+	SetEventHandler(handler EventHandler)
 }

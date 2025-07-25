@@ -3,3 +3,9 @@
 // license that can be found in the LICENSE file.
 
 package constant
+
+const (
+	ErrConnectionClosed         = "connection closed"
+	ErrConflictWithEventHandler = "conflict with event handler"
+	ErrAlreadySetEventHandler   = "already set event handler"
+)

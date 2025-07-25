@@ -5,23 +5,42 @@
 package tcp
 
 import (
+	"bufio"
 	"context"
-	"github.com/cocowh/muxcore/core/iface"
-	"github.com/google/uuid"
+	"errors"
 	"net"
 	"sync"
 	"time"
+
+	"github.com/cocowh/muxcore/core/common"
+	"github.com/cocowh/muxcore/core/constant"
+	"github.com/cocowh/muxcore/core/iface"
+	"github.com/cocowh/muxcore/core/utils"
+	"github.com/cocowh/muxcore/pkg/logger"
+	"github.com/google/uuid"
 )
 
 type conn struct {
-	id          string
-	rawConn     net.Conn
-	ctx         context.Context
-	cancel      context.CancelFunc
-	mu          sync.Mutex
-	closed      bool
-	handler     iface.Handler
-	readTimeout time.Duration
+	id           string
+	rawConn      net.Conn
+	ctx          context.Context
+	cancel       context.CancelFunc
+	mu           sync.Mutex
+	closed       bool
+	readTimeout  time.Duration
+	bufReader    *bufio.Reader
+	bufWriter    *bufio.Writer
+	eventHandler iface.EventHandler
+	ioHandler    iface.IOHandler
+	once         sync.Once
+}
+
+func NewConnectionByAddr(addr net.Addr) (iface.Connection, error) {
+	c, err := net.Dial(addr.Network(), addr.String())
+	if err != nil {
+		return nil, err
+	}
+	return NewConnection(c), nil
 }
 
 func NewConnection(c net.Conn) iface.Connection {
@@ -32,6 +51,8 @@ func NewConnection(c net.Conn) iface.Connection {
 		ctx:         ctx,
 		cancel:      cancel,
 		readTimeout: time.Second * 10, //todo:: from config
+		bufReader:   bufio.NewReader(c),
+		bufWriter:   bufio.NewWriter(c),
 	}
 }
 
@@ -48,11 +69,23 @@ func (c *conn) LocalAddr() net.Addr {
 }
 
 func (c *conn) Read(b []byte) (int, error) {
-	return c.rawConn.Read(b)
+	if c.closed {
+		return 0, errors.New(constant.ErrConnectionClosed)
+	}
+	if c.eventHandler != nil {
+		return 0, errors.New(constant.ErrConflictWithEventHandler)
+	}
+	if c.ioHandler != nil {
+		return c.ioHandler.Read(c.bufReader, b)
+	}
+	return c.bufReader.Read(b)
 }
 
 func (c *conn) Write(b []byte) (int, error) {
-	return c.rawConn.Write(b)
+	if c.ioHandler != nil {
+		return c.ioHandler.Write(c.bufWriter, b)
+	}
+	return c.bufWriter.Write(b)
 }
 
 func (c *conn) Close() error {
@@ -65,58 +98,89 @@ func (c *conn) Close() error {
 	c.cancel()
 	c.mu.Unlock()
 
-	if c.handler != nil {
-		c.handler.OnClose(c)
+	if c.eventHandler != nil {
+		c.eventHandler.OnClose(c)
 	}
 	return c.rawConn.Close()
+}
+
+func (c *conn) closeOnError(err error) {
+	if err != nil {
+		if err.Error() != "EOF" {
+			logger.Warnf("conn will close. id: %s,addr:%s, err: %s\n", c.id, c.rawConn.RemoteAddr(), err.Error())
+		}
+		c.notifyError(err)
+	}
+	c.Close()
 }
 
 func (c *conn) Context() context.Context {
 	return c.ctx
 }
 
-func (c *conn) SetHandler(handler iface.Handler) {
+func (c *conn) SetIOHandler(handler iface.IOHandler) {
 	c.mu.Lock()
-	c.handler = handler
+	c.ioHandler = handler
 	c.mu.Unlock()
-
-	if c.handler != nil {
-		c.handler.OnConnect(c)
-	}
-
-	go c.readLoop()
 }
 
-func (c *conn) readLoop() {
-	buf := make([]byte, 4096)
+func (c *conn) SetEventHandler(handler iface.EventHandler) {
+	c.mu.Lock()
+	c.eventHandler = handler
+	c.mu.Unlock()
+
+	if c.eventHandler != nil {
+		c.eventHandler.OnConnect(c)
+		c.once.Do(func() {
+			go c.recv()
+		})
+	}
+}
+
+func (c *conn) recv() {
+	defer utils.PanicHandler(func() {
+		c.closeOnError(common.ErrPanic)
+	})
+	if err := c.recvLoop(); err != nil {
+		c.closeOnError(err)
+	}
+}
+
+func (c *conn) recvLoop() error {
 	for {
 		select {
 		case <-c.ctx.Done():
-			return
+			return nil
 		default:
 		}
-		err := c.rawConn.SetReadDeadline(time.Now().Add(c.readTimeout))
+		var data any
+		var err error
+		if c.ioHandler != nil {
+			_, data, err = c.ioHandler.ReadData(c.bufReader)
+			if err != nil {
+				c.notifyError(err)
+				return err
+			}
+		} else {
+			data = make([]byte, 1024)
+			_, err = c.bufReader.Read(data.([]byte))
+		}
 		if err != nil {
 			c.notifyError(err)
-			c.Close()
-			return
+			return err
 		}
-		n, err := c.rawConn.Read(buf)
-		if err != nil {
-			c.notifyError(err)
-			c.Close()
-			return
-		}
-		c.notifyMessage()
+		c.notifyMessage(data)
 	}
 }
 
-func (c *conn) notifyMessage(data []byte) {
-
+func (c *conn) notifyMessage(data any) {
+	if c.eventHandler != nil {
+		c.eventHandler.OnMessage(c, data)
+	}
 }
 
 func (c *conn) notifyError(err error) {
-	if c.handler != nil {
-		c.handler.OnError(c, err)
+	if c.eventHandler != nil {
+		c.eventHandler.OnError(c, err)
 	}
 }
