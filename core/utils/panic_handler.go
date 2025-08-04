@@ -6,11 +6,13 @@ package utils
 
 import (
 	"runtime/debug"
+	"sync"
 
 	"github.com/cocowh/muxcore/pkg/logger"
 )
 
 var (
+	once         sync.Once
 	PanicHandler PanicHandlerFunc
 )
 
@@ -26,3 +28,11 @@ func init() {
 }
 
 type PanicHandlerFunc func(f func())
+
+func SetPanicHandler(f PanicHandlerFunc) {
+	if f != nil {
+		once.Do(func() {
+			PanicHandler = f
+		})
+	}
+}

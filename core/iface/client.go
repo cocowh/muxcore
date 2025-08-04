@@ -4,11 +4,13 @@
 
 package iface
 
-type Server interface {
-	Start() error
-	Stop() error
+import "context"
+
+type Client interface {
+	Connect() error
+	Send(data []byte) (int, error)
+	Close() error
 	SetEventHandler(eventHandler EventHandler)
 	SetIOHandler(ioHandler IOHandler)
-	GetConnection(id string) (Connection, bool)
-	RemoveConnection(id string)
+	Context() context.Context
 }

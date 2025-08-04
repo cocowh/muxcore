@@ -5,7 +5,13 @@
 package constant
 
 const (
-	ErrConnectionClosed         = "connection closed"
-	ErrConflictWithEventHandler = "conflict with event handler"
-	ErrAlreadySetEventHandler   = "already set event handler"
+	ErrMessagePanic                    = "panic occurred"
+	ErrMessageConnectFailed            = "connect failed"
+	ErrMessageConnectionClosed         = "connection closed"
+	ErrMessageConflictWithEventHandler = "conflict with event handler"
+	ErrMessageAlreadySetEventHandler   = "already set event handler"
+	ErrMessageConfigNotFound           = "config not found"
+
+	ErrMessageClientClosed = "client closed"
+	ErrMessageServerClosed = "server closed"
 )
