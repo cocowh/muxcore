@@ -7,7 +7,6 @@ package tcp
 import (
 	"bufio"
 	"context"
-	"errors"
 	"net"
 	"sync"
 	"time"
@@ -70,10 +69,10 @@ func (c *conn) LocalAddr() net.Addr {
 
 func (c *conn) Read(b []byte) (int, error) {
 	if c.closed {
-		return 0, errors.New(constant.ErrConnectionClosed)
+		return 0, constant.ErrConnectionClosed
 	}
 	if c.eventHandler != nil {
-		return 0, errors.New(constant.ErrConflictWithEventHandler)
+		return 0, constant.ErrConflictWithEventHandler
 	}
 	if c.ioHandler != nil {
 		return c.ioHandler.Read(c.bufReader, b)
