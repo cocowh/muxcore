@@ -23,7 +23,7 @@ func (l *stdLogger) Debugf(format string, args ...interface{}) {
 	l.logger.Printf("[DEBUG] "+format, args...)
 }
 
-func (l *stdLogger) Debugln(args ...interface{}) {
+func (l *stdLogger) Debug(args ...interface{}) {
 	l.logger.Print(append([]interface{}{"[DEBUG]"}, args...)...)
 }
 
@@ -31,7 +31,7 @@ func (l *stdLogger) Infof(format string, args ...interface{}) {
 	l.logger.Printf("[INFO] "+format, args...)
 }
 
-func (l *stdLogger) Infoln(args ...interface{}) {
+func (l *stdLogger) Info(args ...interface{}) {
 	l.logger.Print(append([]interface{}{"[INFO]"}, args...)...)
 }
 
@@ -39,7 +39,7 @@ func (l *stdLogger) Warnf(format string, args ...interface{}) {
 	l.logger.Printf("[WARN] "+format, args...)
 }
 
-func (l *stdLogger) Warnln(args ...interface{}) {
+func (l *stdLogger) Warn(args ...interface{}) {
 	l.logger.Print(append([]interface{}{"[WARN]"}, args...)...)
 }
 
@@ -47,7 +47,7 @@ func (l *stdLogger) Errorf(format string, args ...interface{}) {
 	l.logger.Printf("[ERROR] "+format, args...)
 }
 
-func (l *stdLogger) Errorln(args ...interface{}) {
+func (l *stdLogger) Error(args ...interface{}) {
 	l.logger.Print(append([]interface{}{"[ERROR]"}, args...)...)
 }
 
@@ -55,6 +55,6 @@ func (l *stdLogger) Fatalf(format string, args ...interface{}) {
 	l.logger.Fatalf("[FATAL] "+format, args...)
 }
 
-func (l *stdLogger) Fatalln(args ...interface{}) {
+func (l *stdLogger) Fatal(args ...interface{}) {
 	l.logger.Fatal(append([]interface{}{"[FATAL]"}, args...)...)
 }

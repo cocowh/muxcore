@@ -6,7 +6,6 @@ package logger
 
 import (
 	"fmt"
-	"os"
 )
 
 var (
@@ -15,15 +14,15 @@ var (
 
 type Logger interface {
 	Debugf(format string, args ...any)
-	Debugln(args ...any)
+	Debug(args ...any)
 	Infof(format string, args ...any)
-	Infoln(args ...any)
+	Info(args ...any)
 	Warnf(format string, args ...any)
-	Warnln(args ...any)
+	Warn(args ...any)
 	Errorf(format string, args ...interface{})
-	Errorln(args ...any)
+	Error(args ...any)
 	Fatalf(format string, args ...interface{})
-	Fatalln(args ...any)
+	Fatal(args ...any)
 }
 
 func Debugf(msg string, fields ...any) {
@@ -33,11 +32,12 @@ func Debugf(msg string, fields ...any) {
 		defaultLogger.Debugf(msg, fields...)
 	}
 }
+
 func Debugln(fields ...any) {
 	if defaultLogger == nil {
-		fmt.Fprintln(os.Stdout, fields...)
+		fmt.Println(fields...)
 	} else {
-		defaultLogger.Debugln(fields...)
+		defaultLogger.Debug(fields...)
 	}
 }
 
@@ -53,7 +53,7 @@ func Infoln(fields ...any) {
 	if defaultLogger == nil {
 		fmt.Println(fields...)
 	} else {
-		defaultLogger.Infoln(fields...)
+		defaultLogger.Info(fields...)
 	}
 }
 
@@ -69,7 +69,7 @@ func Warnln(fields ...any) {
 	if defaultLogger == nil {
 		fmt.Println(fields...)
 	} else {
-		defaultLogger.Warnln(fields...)
+		defaultLogger.Warn(fields...)
 	}
 }
 
@@ -85,7 +85,7 @@ func Errorln(fields ...any) {
 	if defaultLogger == nil {
 		fmt.Println(fields...)
 	} else {
-		defaultLogger.Errorln(fields...)
+		defaultLogger.Error(fields...)
 	}
 }
 
@@ -101,7 +101,7 @@ func Fatalln(fields ...any) {
 	if defaultLogger == nil {
 		fmt.Println(fields...)
 	} else {
-		defaultLogger.Fatalln(fields...)
+		defaultLogger.Fatal(fields...)
 	}
 }
 

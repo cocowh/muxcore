@@ -5,14 +5,14 @@
 package logger
 
 import (
+	"os"
+
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 	"gopkg.in/natefinch/lumberjack.v2"
-	"os"
 )
 
 func NewZapLoggerWithConfig(cfg *Config) (Logger, error) {
-	level := zap.NewAtomicLevelAt(cfg.Level.toZapLevel())
 	var ws zapcore.WriteSyncer
 	if cfg.Output == "stdout" {
 		ws = zapcore.AddSync(os.Stdout)
@@ -26,6 +26,7 @@ func NewZapLoggerWithConfig(cfg *Config) (Logger, error) {
 		}
 		ws = zapcore.AddSync(lj)
 	}
+
 	encoderCfg := zap.NewProductionEncoderConfig()
 	encoderCfg.EncodeTime = zapcore.ISO8601TimeEncoder
 
@@ -35,6 +36,8 @@ func NewZapLoggerWithConfig(cfg *Config) (Logger, error) {
 	} else {
 		encoder = zapcore.NewConsoleEncoder(encoderCfg)
 	}
+
+	level := zap.NewAtomicLevelAt(cfg.Level.toZapLevel())
 	core := zapcore.NewCore(encoder, ws, level)
 	zapLogger := zap.New(core, zap.AddCaller(), zap.AddCallerSkip(2))
 	return &zapLoggerWrapper{logger: zapLogger.Sugar()}, nil
@@ -48,7 +51,7 @@ func (z *zapLoggerWrapper) Debugf(format string, args ...any) {
 	z.logger.Debugf(format, args...)
 }
 
-func (z *zapLoggerWrapper) Debugln(args ...any) {
+func (z *zapLoggerWrapper) Debug(args ...any) {
 	z.logger.Debug(args...)
 }
 
@@ -56,7 +59,7 @@ func (z *zapLoggerWrapper) Infof(format string, args ...any) {
 	z.logger.Infof(format, args...)
 }
 
-func (z *zapLoggerWrapper) Infoln(args ...any) {
+func (z *zapLoggerWrapper) Info(args ...any) {
 	z.logger.Info(args...)
 }
 
@@ -64,7 +67,7 @@ func (z *zapLoggerWrapper) Warnf(format string, args ...any) {
 	z.logger.Warnf(format, args...)
 }
 
-func (z *zapLoggerWrapper) Warnln(args ...any) {
+func (z *zapLoggerWrapper) Warn(args ...any) {
 	z.logger.Warn(args...)
 }
 
@@ -72,7 +75,7 @@ func (z *zapLoggerWrapper) Errorf(format string, args ...interface{}) {
 	z.logger.Errorf(format, args...)
 }
 
-func (z *zapLoggerWrapper) Errorln(args ...any) {
+func (z *zapLoggerWrapper) Error(args ...any) {
 	z.logger.Error(args...)
 }
 
@@ -80,6 +83,6 @@ func (z *zapLoggerWrapper) Fatalf(format string, args ...interface{}) {
 	z.logger.Fatalf(format, args...)
 }
 
-func (z *zapLoggerWrapper) Fatalln(args ...any) {
+func (z *zapLoggerWrapper) Fatal(args ...any) {
 	z.logger.Fatal(args...)
 }

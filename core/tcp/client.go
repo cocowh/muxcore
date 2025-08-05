@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cocowh/muxcore/core/constant"
+	"github.com/cocowh/muxcore/core/common"
 	"github.com/cocowh/muxcore/core/iface"
 	"github.com/cocowh/muxcore/pkg/logger"
 )
@@ -108,7 +108,7 @@ func (c *Client) connect() error {
 		select {
 		case <-time.After(c.opts.ReconnectDelay):
 		case <-c.ctx.Done():
-			return constant.ErrClientClosed
+			return common.ErrClientClosed
 		}
 	}
 

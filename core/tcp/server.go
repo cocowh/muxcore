@@ -6,12 +6,12 @@ package tcp
 
 import (
 	"context"
-	"go/constant"
 	"net"
 	"runtime/debug"
 	"sync"
 	"time"
 
+	"github.com/cocowh/muxcore/core/common"
 	"github.com/cocowh/muxcore/core/iface"
 	"github.com/cocowh/muxcore/core/utils"
 	"github.com/cocowh/muxcore/pkg/logger"
@@ -130,7 +130,7 @@ func (s *Server) acceptLoop() {
 					time.Sleep(100 * time.Millisecond)
 					continue
 				}
-				if constant.IsTemporaryError(err) {
+				if common.IsTemporaryError(err) {
 					logger.Warnf("Temporary accept error: %v", err)
 					time.Sleep(100 * time.Millisecond)
 					continue
