@@ -4,16 +4,23 @@
 
 package logger
 
-type Config struct {
-	Level        Level
-	Format       string
-	Output       string
-	RotateConfig *RotateConfig
-}
+const (
+	RotateFileTimeFormat = "2006-01-02"
+)
 
-type RotateConfig struct {
-	MaxSize    int
-	MaxBackups int
-	MaxAge     int
+type Config struct {
+	LogDir   string
+	BaseName string
+	Format   string
+	Level    Level
+
 	Compress   bool
+	TimeFormat string
+	MaxSizeMB  int
+	MaxBackups int
+	MaxAgeDays int
+
+	EnableStdout    bool
+	EnableWarnFile  bool
+	EnableErrorFile bool
 }

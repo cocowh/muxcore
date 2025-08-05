@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/cocowh/muxcore/core/common"
-	"github.com/cocowh/muxcore/core/constant"
 	"github.com/cocowh/muxcore/core/iface"
 	"github.com/cocowh/muxcore/core/utils"
 	"github.com/cocowh/muxcore/pkg/logger"
@@ -69,10 +68,10 @@ func (c *conn) LocalAddr() net.Addr {
 
 func (c *conn) Read(b []byte) (int, error) {
 	if c.closed {
-		return 0, constant.ErrConnectionClosed
+		return 0, common.ErrConnectionClosed
 	}
 	if c.eventHandler != nil {
-		return 0, constant.ErrConflictWithEventHandler
+		return 0, common.ErrConflictWithEventHandler
 	}
 	if c.ioHandler != nil {
 		return c.ioHandler.Read(c.bufReader, b)
