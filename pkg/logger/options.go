@@ -20,7 +20,22 @@ type Config struct {
 	MaxBackups int
 	MaxAgeDays int
 
-	EnableStdout    bool
 	EnableWarnFile  bool
 	EnableErrorFile bool
+}
+
+func (c *Config) Clone() *Config {
+	return &Config{
+		LogDir:          c.LogDir,
+		BaseName:        c.BaseName,
+		Format:          c.Format,
+		Level:           c.Level,
+		Compress:        c.Compress,
+		TimeFormat:      c.TimeFormat,
+		MaxSizeMB:       c.MaxSizeMB,
+		MaxBackups:      c.MaxBackups,
+		MaxAgeDays:      c.MaxAgeDays,
+		EnableWarnFile:  c.EnableWarnFile,
+		EnableErrorFile: c.EnableErrorFile,
+	}
 }

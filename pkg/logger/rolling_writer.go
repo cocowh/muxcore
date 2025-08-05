@@ -33,17 +33,21 @@ type RollingWriter struct {
 	fileSize int64
 }
 
-func NewRollingWriter(cfg Config) io.Writer {
+// NewRollingWriter create a new rolling writer
+func NewRollingWriter(cfg *Config) io.Writer {
+	if cfg == nil {
+		return os.Stdout
+	}
 	mark := time.Now().Truncate(time.Hour)
 
 	basePath := filepath.Join(cfg.LogDir, cfg.BaseName+".log")
 	rotate := time.Hour
 
-	f, _ := os.OpenFile(basePath, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
-	var size int64
-	if info, err := f.Stat(); err == nil {
-		size = info.Size()
+	if err := os.MkdirAll(cfg.LogDir, 0755); err != nil {
+		Errorf("Failed to create log directory: %v", err)
+		return os.Stdout
 	}
+
 	if cfg.MaxSizeMB <= 0 {
 		cfg.MaxSizeMB = 1024
 	}
@@ -57,31 +61,55 @@ func NewRollingWriter(cfg Config) io.Writer {
 		currentMark: mark,
 		maxBackups:  cfg.MaxBackups,
 		maxAgeDays:  cfg.MaxAgeDays,
-		file:        f,
-		fileSize:    size,
+		file:        os.Stdout,
+		fileSize:    0,
 	}
+
+	r.openExistOrNew()
+
 	go r.startRotateTicker()
 	return r
 }
 
+// startRotateTicker 启动滚动定时器
 func (r *RollingWriter) startRotateTicker() {
 	go func() {
 		defer func() {
 			if err := recover(); err != nil {
 				log.Printf("rotate logs failed. err:%v", err)
-				Warnf("rotate logs failed. err:%v", err)
 			}
 		}()
 		for {
 			now := time.Now()
-			next := now.Truncate(time.Hour).Add(time.Hour)
+			next := now.Truncate(r.rotateEvery).Add(r.rotateEvery)
 			time.Sleep(time.Until(next))
 			r.mu.Lock()
+
+			// rotate log file
 			r.scheduleRotate()
+
+			// update current mark
 			r.currentMark = next
-			r.file.Close()
-			r.file, _ = os.OpenFile(r.basePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-			r.fileSize = 0
+
+			// close current file
+			if err := r.file.Close(); err != nil {
+				log.Printf("Failed to close log file: %v", err)
+			}
+
+			// update base path (ensure without timestamp)
+			basePath := r.basePath
+			if strings.Contains(basePath, "-") {
+				baseName := filepath.Base(basePath)
+				parts := strings.Split(baseName, "-")
+				if len(parts) > 0 {
+					basePath = filepath.Join(filepath.Dir(basePath), parts[0]+".log")
+				}
+			}
+			r.basePath = basePath
+
+			// open exist file or create new file
+			r.openExistOrNew()
+
 			r.mu.Unlock()
 		}
 	}()
@@ -93,9 +121,12 @@ func (r *RollingWriter) Write(p []byte) (int, error) {
 
 	if r.maxSize > 0 && r.fileSize+int64(len(p)) > r.maxSize {
 		r.scheduleRotate()
-		r.file.Close()
-		r.file, _ = os.OpenFile(r.basePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
-		r.fileSize = 0
+		// close current file
+		if err := r.file.Close(); err != nil {
+			log.Printf("Failed to close log file: %v", err)
+		}
+		// open exist file or create new file
+		r.openExistOrNew()
 	}
 
 	n, err := r.file.Write(p)
@@ -103,6 +134,52 @@ func (r *RollingWriter) Write(p []byte) (int, error) {
 	return n, err
 }
 
+// openExistOrNew open exist file or create new file
+func (r *RollingWriter) openExistOrNew() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// check if file exist
+	if _, err := os.Stat(r.basePath); err == nil {
+		// file exist, open it
+		newFile, err := os.OpenFile(r.basePath, os.O_APPEND|os.O_WRONLY, 0644)
+		if err == nil {
+			// close old file
+			if err := r.file.Close(); err != nil {
+				log.Printf("Failed to close old log file: %v", err)
+			}
+			// update file and size
+			r.file = newFile
+			if info, err := newFile.Stat(); err == nil {
+				r.fileSize = info.Size()
+			}
+			return
+		}
+	}
+
+	// if file not exist or open failed, create new file
+	newFile, err := os.OpenFile(r.basePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		log.Printf("Failed to create new log file: %v", err)
+		// if create failed, try to use standard error output
+		if r.file != os.Stdout {
+			if err := r.file.Close(); err != nil {
+				log.Printf("Failed to close old log file: %v", err)
+			}
+			r.file = os.Stdout
+		}
+	} else {
+		// close old file
+		if err := r.file.Close(); err != nil {
+			log.Printf("Failed to close old log file: %v", err)
+		}
+		// update file and size
+		r.file = newFile
+		r.fileSize = 0
+	}
+}
+
+// scheduleRotate rotate log file
 func (r *RollingWriter) scheduleRotate() {
 	base := r.basePath
 	timeFormat := r.timeFormat
@@ -116,27 +193,51 @@ func (r *RollingWriter) scheduleRotate() {
 		return
 	}
 
-	formatted := timestamp.Format(timeFormat)
-	ext := filepath.Ext(base)
-	baseName := strings.TrimSuffix(base, ext)
-	rotated := fmt.Sprintf("%s-%s%s", baseName, formatted, ext)
-
-	_ = os.Rename(base, rotated)
-
-	if compress {
-		r.compressFile(rotated)
+	// get base name
+	baseName := strings.TrimSuffix(base, filepath.Ext(base))
+	// if base name already contains timestamp, extract without timestamp
+	if strings.Contains(baseName, "-") {
+		parts := strings.Split(baseName, "-")
+		if len(parts) > 0 {
+			baseName = parts[0]
+		}
 	}
 
-	r.cleanupOldLogs(baseName, ext, timeFormat, maxBackups, maxAgeDays)
+	formatted := timestamp.Format(timeFormat)
+	ext := filepath.Ext(base)
+	rotated := fmt.Sprintf("%s-%s%s", baseName, formatted, ext)
+
+	// check if rotated file exist
+	if _, err := os.Stat(rotated); err == nil {
+		// if file exist, add a counter
+		i := 1
+		for {
+			newRotated := fmt.Sprintf("%s-%s-%d%s", baseName, formatted, i, ext)
+			if _, err := os.Stat(newRotated); err != nil {
+				rotated = newRotated
+				break
+			}
+			i++
+		}
+	}
+
+	if err := os.Rename(base, rotated); err != nil {
+		log.Printf("Failed to rotate log file: %v", err)
+		return
+	}
+
+	if compress {
+		compressFile(rotated)
+	}
+
+	cleanupOldLogs(baseName, ext, timeFormat, maxBackups, maxAgeDays)
 }
 
-func (r *RollingWriter) openExistOrNew() {
-
-}
-
-func (r *RollingWriter) compressFile(path string) {
+// compressFile compress log file
+func compressFile(path string) {
 	in, err := os.Open(path)
 	if err != nil {
+		log.Printf("Failed to open file for compression: %v", err)
 		return
 	}
 	defer in.Close()
@@ -144,17 +245,24 @@ func (r *RollingWriter) compressFile(path string) {
 	outPath := path + ".gz"
 	out, err := os.Create(outPath)
 	if err != nil {
+		log.Printf("Failed to create compressed file: %v", err)
 		return
 	}
 	defer out.Close()
 
 	gz := gzip.NewWriter(out)
-	_, _ = io.Copy(gz, in)
+	_, err = io.Copy(gz, in)
+	if err != nil {
+		log.Printf("Failed to compress file: %v", err)
+	}
 	gz.Close()
-	_ = os.Remove(path)
+	if err := os.Remove(path); err != nil {
+		log.Printf("Failed to remove original file after compression: %v", err)
+	}
 }
 
-func (r *RollingWriter) cleanupOldLogs(base, ext, timeFormat string, maxBackups, maxAgeDays int) {
+// cleanupOldLogs cleanup old log files
+func cleanupOldLogs(base, ext, timeFormat string, maxBackups, maxAgeDays int) {
 	dir := filepath.Dir(base)
 	entries, err := os.ReadDir(dir)
 	if err != nil {

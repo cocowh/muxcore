@@ -5,28 +5,16 @@
 package logger
 
 import (
-	"os"
+	"errors"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 func NewZapLoggerWithConfig(cfg *Config) (Logger, error) {
-	var ws zapcore.WriteSyncer
-	if cfg.Output == "stdout" {
-		ws = zapcore.AddSync(os.Stdout)
-	} else {
-		lj := &lumberjack.Logger{
-			Filename:   cfg.Output,
-			MaxSize:    cfg.RotateConfig.MaxSize,
-			MaxAge:     cfg.RotateConfig.MaxAge,
-			MaxBackups: cfg.RotateConfig.MaxBackups,
-			Compress:   cfg.RotateConfig.Compress,
-		}
-		ws = zapcore.AddSync(lj)
+	if cfg == nil {
+		return nil, errors.New("config is nil")
 	}
-
 	encoderCfg := zap.NewProductionEncoderConfig()
 	encoderCfg.EncodeTime = zapcore.ISO8601TimeEncoder
 
@@ -37,10 +25,32 @@ func NewZapLoggerWithConfig(cfg *Config) (Logger, error) {
 		encoder = zapcore.NewConsoleEncoder(encoderCfg)
 	}
 
+	cores := []zapcore.Core{}
 	level := zap.NewAtomicLevelAt(cfg.Level.toZapLevel())
-	core := zapcore.NewCore(encoder, ws, level)
-	zapLogger := zap.New(core, zap.AddCaller(), zap.AddCallerSkip(2))
-	return &zapLoggerWrapper{logger: zapLogger.Sugar()}, nil
+
+	mainWriter := NewRollingWriter(cfg)
+	cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(mainWriter), level))
+
+	if cfg.EnableWarnFile {
+		warnCfg := cfg.Clone()
+		warnCfg.BaseName += "-warn"
+		warnWriter := NewRollingWriter(warnCfg)
+		cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(warnWriter), zap.LevelEnablerFunc(func(l zapcore.Level) bool {
+			return l >= zapcore.WarnLevel
+		})))
+	}
+
+	if cfg.EnableErrorFile {
+		errorCfg := cfg.Clone()
+		errorCfg.BaseName += "-error"
+		errorWriter := NewRollingWriter(errorCfg)
+		cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(errorWriter), zap.LevelEnablerFunc(func(l zapcore.Level) bool {
+			return l >= zapcore.ErrorLevel
+		})))
+	}
+	zapLogger := zap.New(zapcore.NewTee(cores...), zap.AddCaller(), zap.AddCallerSkip(2)).Sugar()
+
+	return &zapLoggerWrapper{logger: zapLogger}, nil
 }
 
 type zapLoggerWrapper struct {
