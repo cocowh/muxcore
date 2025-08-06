@@ -2,7 +2,7 @@
 // Use of this source code is governed by a MIT-style
 // license that can be found in the LICENSE file.
 
-package tcp
+package udp
 
 import (
 	"bufio"
@@ -13,15 +13,14 @@ import (
 
 	"github.com/cocowh/muxcore/core/common"
 	"github.com/cocowh/muxcore/core/iface"
-	"github.com/cocowh/muxcore/core/utils"
-	"github.com/cocowh/muxcore/pkg/logger"
 	"github.com/google/uuid"
 	"github.com/spf13/viper"
 )
 
 type conn struct {
 	id           string
-	rawConn      net.Conn
+	rawConn      *net.UDPConn
+	remoteAddr   *net.UDPAddr
 	ctx          context.Context
 	cancel       context.CancelFunc
 	mu           sync.Mutex
@@ -31,25 +30,17 @@ type conn struct {
 	bufWriter    *bufio.Writer
 	eventHandler iface.EventHandler
 	ioHandler    iface.IOHandler
-	once         sync.Once
 }
 
-func NewConnectionByAddr(addr net.Addr) (iface.Connection, error) {
-	c, err := net.Dial(addr.Network(), addr.String())
-	if err != nil {
-		return nil, err
-	}
-	return NewConnection(c), nil
-}
-
-func NewConnection(c net.Conn) iface.Connection {
+func NewConnection(c *net.UDPConn, remoteAddr *net.UDPAddr) iface.Connection {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &conn{
 		id:          uuid.NewString(),
 		rawConn:     c,
+		remoteAddr:  remoteAddr,
 		ctx:         ctx,
 		cancel:      cancel,
-		readTimeout: viper.GetDuration("tcp.read_timeout"),
+		readTimeout: viper.GetDuration("udp.read_timeout"),
 		bufReader:   bufio.NewReader(c),
 		bufWriter:   bufio.NewWriter(c),
 	}
@@ -60,7 +51,7 @@ func (c *conn) ID() string {
 }
 
 func (c *conn) RemoteAddr() net.Addr {
-	return c.rawConn.RemoteAddr()
+	return c.remoteAddr
 }
 
 func (c *conn) LocalAddr() net.Addr {
@@ -71,46 +62,49 @@ func (c *conn) Read(b []byte) (int, error) {
 	if c.closed {
 		return 0, common.ErrConnectionClosed
 	}
-	if c.eventHandler != nil {
-		return 0, common.ErrConflictWithEventHandler
-	}
+
 	if c.ioHandler != nil {
 		return c.ioHandler.Read(c.bufReader, b)
 	}
-	return c.bufReader.Read(b)
+
+	// 设置读超时
+	if c.readTimeout > 0 {
+		c.rawConn.SetReadDeadline(time.Now().Add(c.readTimeout))
+	}
+
+	n, _, err := c.rawConn.ReadFromUDP(b)
+	return n, err
 }
 
 func (c *conn) Write(b []byte) (int, error) {
+	if c.closed {
+		return 0, common.ErrConnectionClosed
+	}
+
 	if c.ioHandler != nil {
 		return c.ioHandler.Write(c.bufWriter, b)
 	}
-	return c.bufWriter.Write(b)
+
+	return c.rawConn.WriteToUDP(b, c.remoteAddr)
 }
 
 func (c *conn) Close() error {
 	c.mu.Lock()
+	defer c.mu.Unlock()
+
 	if c.closed {
-		c.mu.Unlock()
 		return nil
 	}
+
 	c.closed = true
 	c.cancel()
-	c.mu.Unlock()
 
 	if c.eventHandler != nil {
 		c.eventHandler.OnClose(c)
 	}
-	return c.rawConn.Close()
-}
 
-func (c *conn) closeOnError(err error) {
-	if err != nil {
-		if err.Error() != "EOF" {
-			logger.Warnf("conn will close. id: %s,addr:%s, err: %s\n", c.id, c.rawConn.RemoteAddr(), err.Error())
-		}
-		c.notifyError(err)
-	}
-	c.Close()
+	// UDP连接不需要关闭底层连接，由客户端/服务器管理
+	return nil
 }
 
 func (c *conn) Context() context.Context {
@@ -130,56 +124,5 @@ func (c *conn) SetEventHandler(handler iface.EventHandler) {
 
 	if c.eventHandler != nil {
 		c.eventHandler.OnConnect(c)
-		c.once.Do(func() {
-			go c.recv()
-		})
-	}
-}
-
-func (c *conn) recv() {
-	defer utils.PanicHandler(func() {
-		c.closeOnError(common.ErrPanic)
-	})
-	if err := c.recvLoop(); err != nil {
-		c.closeOnError(err)
-	}
-}
-
-func (c *conn) recvLoop() error {
-	for {
-		select {
-		case <-c.ctx.Done():
-			return nil
-		default:
-		}
-		var data any
-		var err error
-		if c.ioHandler != nil {
-			_, data, err = c.ioHandler.ReadData(c.bufReader)
-			if err != nil {
-				c.notifyError(err)
-				return err
-			}
-		} else {
-			data = make([]byte, 1024)
-			_, err = c.bufReader.Read(data.([]byte))
-		}
-		if err != nil {
-			c.notifyError(err)
-			return err
-		}
-		c.notifyMessage(data)
-	}
-}
-
-func (c *conn) notifyMessage(data any) {
-	if c.eventHandler != nil {
-		c.eventHandler.OnMessage(c, data)
-	}
-}
-
-func (c *conn) notifyError(err error) {
-	if c.eventHandler != nil {
-		c.eventHandler.OnError(c, err)
 	}
 }
