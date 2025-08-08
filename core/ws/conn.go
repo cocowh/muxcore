@@ -14,39 +14,51 @@ import (
 	"github.com/cocowh/muxcore/core/common"
 	"github.com/cocowh/muxcore/core/iface"
 	"github.com/cocowh/muxcore/core/utils"
+	"github.com/cocowh/muxcore/pkg/logger"
 	"github.com/google/uuid"
 	"github.com/spf13/viper"
 	"golang.org/x/net/websocket"
 )
 
 type conn struct {
-	id           string
-	rawConn      *websocket.Conn
-	ctx          context.Context
-	cancel       context.CancelFunc
-	mu           sync.Mutex
-	closed       bool
-	readTimeout  time.Duration
-	writeTimeout time.Duration
-	bufReader    *bufio.Reader
-	bufWriter    *bufio.Writer
-	eventHandler iface.EventHandler
-	ioHandler    iface.IOHandler
-	once         sync.Once
+	id                string
+	rawConn           *websocket.Conn
+	ctx               context.Context
+	cancel            context.CancelFunc
+	mu                sync.Mutex
+	closed            bool
+	readTimeout       time.Duration
+	writeTimeout      time.Duration
+	bufReader         *bufio.Reader
+	bufWriter         *bufio.Writer
+	heartbeatInterval time.Duration
+	lastActivity      time.Time
+	eventHandler      iface.EventHandler
+	ioHandler         iface.IOHandler
+	once              sync.Once
 }
 
 func NewConnection(wsConn *websocket.Conn) iface.Connection {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &conn{
-		id:           uuid.NewString(),
-		rawConn:      wsConn,
-		ctx:          ctx,
-		cancel:       cancel,
-		readTimeout:  viper.GetDuration("ws.read_timeout"),
-		writeTimeout: viper.GetDuration("ws.write_timeout"),
-		bufReader:    bufio.NewReader(wsConn),
-		bufWriter:    bufio.NewWriter(wsConn),
+	c := &conn{
+		id:                uuid.NewString(),
+		rawConn:           wsConn,
+		ctx:               ctx,
+		cancel:            cancel,
+		readTimeout:       viper.GetDuration("ws.read_timeout"),
+		writeTimeout:      viper.GetDuration("ws.write_timeout"),
+		bufReader:         bufio.NewReader(wsConn),
+		bufWriter:         bufio.NewWriter(wsConn),
+		heartbeatInterval: viper.GetDuration("ws.heartbeat_interval"),
+		lastActivity:      time.Now(),
 	}
+
+	// 设置默认的心跳间隔
+	if c.heartbeatInterval <= 0 {
+		c.heartbeatInterval = 30 * time.Second
+	}
+
+	return c
 }
 
 func (c *conn) ID() string {
@@ -170,8 +182,38 @@ func (c *conn) recvLoop() error {
 			}
 		}
 
+		// 更新最后活动时间
+		c.lastActivity = time.Now()
+
+		// 处理心跳响应
+		if bytesData, ok := data.([]byte); n > 0 && ok {
+			if string(bytesData) == "ping" {
+				// 回复pong
+				if _, err = c.Write([]byte("pong")); err != nil {
+					logger.Warnf("Failed to send pong: %v", err)
+					c.notifyError(err)
+				}
+				continue
+			} else if string(bytesData) == "pong" {
+				// 收到pong，更新活动时间
+				c.lastActivity = time.Now()
+				continue
+			}
+		}
+
 		if err != nil {
 			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				// 检查是否超过心跳间隔
+				if time.Since(c.lastActivity) > c.heartbeatInterval*2 {
+					logger.Warnf("Heartbeat timeout for connection: %s", c.RemoteAddr().String())
+					c.notifyError(common.ErrHeartbeatTimeout)
+					return common.ErrHeartbeatTimeout
+				}
+				continue
+			}
+			// 判断是否为临时错误
+			if common.IsTemporaryError(err) {
+				logger.Warnf("Temporary error on connection: %v", err)
 				continue
 			}
 			c.notifyError(err)

@@ -15,6 +15,7 @@ import (
 	"github.com/cocowh/muxcore/core/iface"
 	"github.com/cocowh/muxcore/core/utils"
 	"github.com/cocowh/muxcore/pkg/logger"
+	"github.com/spf13/viper"
 )
 
 type Client struct {
@@ -27,6 +28,7 @@ type Client struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
 	opts         *ClientOptions
+	connObj      iface.Connection
 }
 
 type ClientOptions struct {
@@ -36,8 +38,8 @@ type ClientOptions struct {
 
 func NewClientOptions() *ClientOptions {
 	return &ClientOptions{
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 5 * time.Second,
+		ReadTimeout:  viper.GetDuration("udp.read_timeout"),
+		WriteTimeout: viper.GetDuration("udp.write_timeout"),
 	}
 }
 
@@ -85,6 +87,11 @@ func (c *Client) Connect() error {
 
 	c.conn = conn
 
+	// 创建连接对象
+	c.connObj = NewConnection(conn, c.remoteAddr)
+	c.connObj.SetEventHandler(c.eventHandler)
+	c.connObj.SetIOHandler(c.ioHandler)
+
 	// 启动接收goroutine
 	go c.recvLoop()
 
@@ -123,6 +130,11 @@ func (c *Client) Close() error {
 
 	c.cancel()
 
+	if c.connObj != nil {
+		c.connObj.Close()
+		c.connObj = nil
+	}
+
 	if c.conn != nil {
 		c.conn.Close()
 		c.conn = nil
@@ -135,12 +147,18 @@ func (c *Client) Close() error {
 func (c *Client) SetEventHandler(handler iface.EventHandler) {
 	c.mu.Lock()
 	c.eventHandler = handler
+	if c.connObj != nil {
+		c.connObj.SetEventHandler(handler)
+	}
 	c.mu.Unlock()
 }
 
 func (c *Client) SetIOHandler(handler iface.IOHandler) {
 	c.mu.Lock()
 	c.ioHandler = handler
+	if c.connObj != nil {
+		c.connObj.SetIOHandler(handler)
+	}
 	c.mu.Unlock()
 }
 
@@ -151,6 +169,7 @@ func (c *Client) Context() context.Context {
 func (c *Client) recvLoop() {
 	defer utils.PanicHandler(func() {
 		logger.Errorf("UDP client recv loop panic, stack: %s", string(debug.Stack()))
+		c.Close()
 	})
 
 	buffer := make([]byte, 65536) // 最大UDP包大小
@@ -186,14 +205,14 @@ func (c *Client) recvLoop() {
 			data := make([]byte, n)
 			copy(data, buffer[:n])
 
-			// 创建一个连接对象用于事件处理
-			conn := NewConnection(c.conn, remoteAddr)
-			conn.SetEventHandler(c.eventHandler)
-			conn.SetIOHandler(c.ioHandler)
-
-			// 触发消息事件
-			if c.eventHandler != nil {
-				c.eventHandler.OnMessage(conn, data)
+			// 检查是否是我们发送的目标地址
+			if remoteAddr.String() == c.remoteAddr.String() {
+				// 触发消息事件
+				if c.eventHandler != nil {
+					c.eventHandler.OnMessage(c.connObj, data)
+				}
+			} else {
+				logger.Infof("Received packet from unexpected address: %s", remoteAddr.String())
 			}
 		}
 	}
