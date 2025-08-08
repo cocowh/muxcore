@@ -19,6 +19,8 @@ var (
 	ErrServerClosed             = errors.New(constant.ErrMessageServerClosed)
 	ErrConflictWithEventHandler = errors.New(constant.ErrMessageConflictWithEventHandler)
 	ErrConfigNotFound           = errors.New(constant.ErrMessageConfigNotFound)
+	ErrHeartbeatTimeout         = errors.New(constant.ErrMessageHeartbeatTimeout)
+	ErrInvalidTLSConfig         = errors.New("invalid TLS config")
 )
 
 func IsTemporaryError(err error) bool {

@@ -15,6 +15,7 @@ import (
 	"github.com/cocowh/muxcore/core/iface"
 	"github.com/cocowh/muxcore/core/utils"
 	"github.com/cocowh/muxcore/pkg/logger"
+	"github.com/spf13/viper"
 )
 
 type Server struct {
@@ -38,8 +39,8 @@ type ServerOptions struct {
 
 func NewServerOptions() *ServerOptions {
 	return &ServerOptions{
-		ReadTimeout:    10 * time.Second,
-		WriteTimeout:   5 * time.Second,
+		ReadTimeout:    viper.GetDuration("udp.read_timeout"),
+		WriteTimeout:   viper.GetDuration("udp.write_timeout"),
 		MaxConnections: 1000,
 	}
 }
@@ -105,6 +106,10 @@ func (s *Server) Stop() error {
 	}
 
 	s.mu.Lock()
+	// 关闭所有连接
+	for _, conn := range s.conns {
+		conn.Close()
+	}
 	s.conns = make(map[string]iface.Connection)
 	s.mu.Unlock()
 

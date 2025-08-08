@@ -13,6 +13,7 @@ import (
 
 	"github.com/cocowh/muxcore/core/common"
 	"github.com/cocowh/muxcore/core/iface"
+	"github.com/cocowh/muxcore/core/utils"
 	"github.com/google/uuid"
 	"github.com/spf13/viper"
 )
@@ -26,23 +27,26 @@ type conn struct {
 	mu           sync.Mutex
 	closed       bool
 	readTimeout  time.Duration
+	writeTimeout time.Duration
 	bufReader    *bufio.Reader
 	bufWriter    *bufio.Writer
 	eventHandler iface.EventHandler
 	ioHandler    iface.IOHandler
+	once         sync.Once
 }
 
 func NewConnection(c *net.UDPConn, remoteAddr *net.UDPAddr) iface.Connection {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &conn{
-		id:          uuid.NewString(),
-		rawConn:     c,
-		remoteAddr:  remoteAddr,
-		ctx:         ctx,
-		cancel:      cancel,
-		readTimeout: viper.GetDuration("udp.read_timeout"),
-		bufReader:   bufio.NewReader(c),
-		bufWriter:   bufio.NewWriter(c),
+		id:           uuid.NewString(),
+		rawConn:      c,
+		remoteAddr:   remoteAddr,
+		ctx:          ctx,
+		cancel:       cancel,
+		readTimeout:  viper.GetDuration("udp.read_timeout"),
+		writeTimeout: viper.GetDuration("udp.write_timeout"),
+		bufReader:    bufio.NewReader(c),
+		bufWriter:    bufio.NewWriter(c),
 	}
 }
 
@@ -63,13 +67,17 @@ func (c *conn) Read(b []byte) (int, error) {
 		return 0, common.ErrConnectionClosed
 	}
 
-	if c.ioHandler != nil {
-		return c.ioHandler.Read(c.bufReader, b)
+	if c.eventHandler != nil {
+		return 0, common.ErrConflictWithEventHandler
 	}
 
 	// 设置读超时
 	if c.readTimeout > 0 {
 		c.rawConn.SetReadDeadline(time.Now().Add(c.readTimeout))
+	}
+
+	if c.ioHandler != nil {
+		return c.ioHandler.Read(c.bufReader, b)
 	}
 
 	n, _, err := c.rawConn.ReadFromUDP(b)
@@ -79,6 +87,11 @@ func (c *conn) Read(b []byte) (int, error) {
 func (c *conn) Write(b []byte) (int, error) {
 	if c.closed {
 		return 0, common.ErrConnectionClosed
+	}
+
+	// 设置写超时
+	if c.writeTimeout > 0 {
+		c.rawConn.SetWriteDeadline(time.Now().Add(c.writeTimeout))
 	}
 
 	if c.ioHandler != nil {
@@ -124,5 +137,77 @@ func (c *conn) SetEventHandler(handler iface.EventHandler) {
 
 	if c.eventHandler != nil {
 		c.eventHandler.OnConnect(c)
+		c.once.Do(func() {
+			go c.recv()
+		})
 	}
+}
+
+func (c *conn) recv() {
+	defer utils.PanicHandler(func() {
+		c.closeOnError(common.ErrPanic)
+	})
+
+	if err := c.recvLoop(); err != nil {
+		c.closeOnError(err)
+	}
+}
+
+func (c *conn) recvLoop() error {
+	for {
+		select {
+		case <-c.ctx.Done():
+			return nil
+		default:
+		}
+
+		if c.readTimeout > 0 {
+			c.rawConn.SetReadDeadline(time.Now().Add(c.readTimeout))
+		}
+
+		var data any
+		var err error
+		var n int
+
+		if c.ioHandler != nil {
+			_, data, err = c.ioHandler.ReadData(c.bufReader)
+		} else {
+			data = make([]byte, 65536)
+			n, _, err = c.rawConn.ReadFromUDP(data.([]byte))
+			if n > 0 {
+				if bytesData, ok := data.([]byte); ok {
+					data = bytesData[:n]
+				}
+			}
+		}
+
+		if err != nil {
+			if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+				continue
+			}
+			c.notifyError(err)
+			return err
+		}
+
+		c.notifyMessage(data)
+	}
+}
+
+func (c *conn) notifyMessage(data any) {
+	if c.eventHandler != nil {
+		c.eventHandler.OnMessage(c, data)
+	}
+}
+
+func (c *conn) notifyError(err error) {
+	if c.eventHandler != nil {
+		c.eventHandler.OnError(c, err)
+	}
+}
+
+func (c *conn) closeOnError(err error) {
+	if err != nil {
+		c.notifyError(err)
+	}
+	c.Close()
 }

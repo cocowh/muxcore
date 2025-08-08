@@ -6,14 +6,17 @@ package ws
 
 import (
 	"context"
+	"crypto/tls"
 	"net/http"
 	"runtime/debug"
 	"sync"
 	"time"
 
+	"github.com/cocowh/muxcore/core/common"
 	"github.com/cocowh/muxcore/core/iface"
 	"github.com/cocowh/muxcore/core/utils"
 	"github.com/cocowh/muxcore/pkg/logger"
+	"github.com/spf13/viper"
 	"golang.org/x/net/websocket"
 )
 
@@ -77,12 +80,13 @@ func (s *Server) SetIOHandler(handler iface.IOHandler) {
 }
 
 func (s *Server) Start() error {
+	// 创建WebSocket处理器
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != s.path {
 			http.NotFound(w, r)
 			return
 		}
-		// upgrade http to websocket
+		// 升级HTTP连接到WebSocket
 		websocket.Handler(s.handleWebSocket).ServeHTTP(w, r)
 	})
 
@@ -91,13 +95,18 @@ func (s *Server) Start() error {
 		Handler: handler,
 	}
 
-	// start http server
+	// 启动服务器
 	go func() {
 		var err error
 		if s.opts.TLSConfig != nil {
-			// start https server
-			// tlsConfig := s.opts.TLSConfig.(*tls.Config)
-			// err = s.httpServer.ListenAndServeTLS("", "")
+			// 启动HTTPS服务器
+			if tlsConfig, ok := s.opts.TLSConfig.(*tls.Config); ok {
+				s.httpServer.TLSConfig = tlsConfig
+				err = s.httpServer.ListenAndServeTLS("", "")
+			} else {
+				err = common.ErrInvalidTLSConfig
+				logger.Errorf("Invalid TLS config: %v", err)
+			}
 		} else {
 			// 启动HTTP服务器
 			err = s.httpServer.ListenAndServe()
@@ -107,6 +116,9 @@ func (s *Server) Start() error {
 			logger.Errorf("WebSocket server error: %v", err)
 		}
 	}()
+
+	// 启动心跳检查
+	go s.heartbeatCheck()
 
 	logger.Infof("WebSocket server started on %s%s", s.addr, s.path)
 	return nil
@@ -186,4 +198,46 @@ func (s *Server) RemoveConnection(id string) {
 	} else {
 		logger.Warnf("Attempted to remove non-existent WebSocket connection, id: %s", id)
 	}
+}
+
+func (s *Server) heartbeatCheck() {
+	// 从配置中读取心跳间隔，默认为30秒
+	heartbeatInterval := viper.GetDuration("ws.heartbeat_interval")
+	if heartbeatInterval <= 0 {
+		heartbeatInterval = 30 * time.Second
+	}
+
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-ticker.C:
+			s.mu.RLock()
+			for _, conn := range s.conns {
+				go func(c iface.Connection) {
+					// 发送心跳
+					if err := s.sendHeartbeat(c); err != nil {
+						// 判断是否为临时错误
+						if common.IsTemporaryError(err) {
+							logger.Warnf("Temporary error sending heartbeat: %v", err)
+							return
+						}
+						logger.Warnf("Failed to send heartbeat, closing connection: %v", err)
+						s.RemoveConnection(c.ID())
+					}
+				}(conn)
+			}
+			s.mu.RUnlock()
+		}
+	}
+}
+
+func (s *Server) sendHeartbeat(conn iface.Connection) error {
+	// 发送心跳帧
+	heartbeat := []byte("ping")
+	_, err := conn.Write(heartbeat)
+	return err
 }

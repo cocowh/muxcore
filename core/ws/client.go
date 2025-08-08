@@ -58,13 +58,18 @@ func NewClient(url string, opts *ClientOptions) *Client {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
-	return &Client{
+	c := &Client{
 		url:    url,
 		header: make(http.Header),
 		opts:   opts,
 		ctx:    ctx,
 		cancel: cancel,
 	}
+
+	// 启动客户端心跳检查
+	go c.heartbeatCheck()
+
+	return c
 }
 
 func (c *Client) SetHeader(key, value string) {
@@ -180,6 +185,48 @@ func (c *Client) Context() context.Context {
 }
 
 func (c *Client) isConnClosed() bool {
-	// 简单实现，实际应该检查连接状态
-	return c.conn == nil
+	if c.conn == nil {
+		return true
+	}
+
+	// 检查连接上下文是否已完成
+	select {
+	case <-c.conn.Context().Done():
+		return true
+	default:
+		return false
+	}
+}
+
+// 添加客户端心跳检查
+func (c *Client) heartbeatCheck() {
+	// 每30秒发送一次心跳
+	heartbeatInterval := 30 * time.Second
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-ticker.C:
+			c.mu.Lock()
+			if c.conn != nil && !c.isConnClosed() {
+				// 发送心跳
+				go func(conn iface.Connection) {
+					if _, err := conn.Write([]byte("ping")); err != nil {
+						logger.Warnf("Failed to send client heartbeat: %v", err)
+						// 不是临时错误则关闭连接
+						if !common.IsTemporaryError(err) {
+							c.mu.Lock()
+							conn.Close()
+							c.conn = nil
+							c.mu.Unlock()
+						}
+					}
+				}(c.conn)
+			}
+			c.mu.Unlock()
+		}
+	}
 }

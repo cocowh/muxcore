@@ -11,6 +11,7 @@ const (
 	ErrMessageConflictWithEventHandler = "conflict with event handler"
 	ErrMessageAlreadySetEventHandler   = "already set event handler"
 	ErrMessageConfigNotFound           = "config not found"
+	ErrMessageHeartbeatTimeout         = "heartbeat timeout"
 
 	ErrMessageClientClosed = "client closed"
 	ErrMessageServerClosed = "server closed"
