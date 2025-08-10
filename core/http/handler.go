@@ -1,4 +1,4 @@
-package handlers
+package http
 
 import (
 	"bufio"
@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	common "github.com/cocowh/muxcore/core/common"
@@ -14,20 +15,77 @@ import (
 	"github.com/cocowh/muxcore/core/pool"
 	"github.com/cocowh/muxcore/core/router"
 	"github.com/cocowh/muxcore/pkg/errors"
+	"github.com/cocowh/muxcore/pkg/logger"
 )
 
-// HTTPHandler HTTP处理器
+// Middleware 中间件函数类型
+type Middleware func(http.Handler) http.Handler
 
+// HTTPConfig HTTP配置
+type HTTPConfig struct {
+	EnableHTTP2    bool          `yaml:"enable_http2"`
+	MaxHeaderSize  int           `yaml:"max_header_size"`
+	ReadTimeout    time.Duration `yaml:"read_timeout"`
+	WriteTimeout   time.Duration `yaml:"write_timeout"`
+	IdleTimeout    time.Duration `yaml:"idle_timeout"`
+	EnableGzip     bool          `yaml:"enable_gzip"`
+	MaxRequestSize int64         `yaml:"max_request_size"`
+}
+
+// DefaultHTTPConfig 默认HTTP配置
+func DefaultHTTPConfig() *HTTPConfig {
+	return &HTTPConfig{
+		EnableHTTP2:    true,
+		MaxHeaderSize:  1 << 20, // 1MB
+		ReadTimeout:    30 * time.Second,
+		WriteTimeout:   30 * time.Second,
+		IdleTimeout:    120 * time.Second,
+		EnableGzip:     true,
+		MaxRequestSize: 32 << 20, // 32MB
+	}
+}
+
+// HTTPHandler HTTP处理器
 type HTTPHandler struct {
 	*common.BaseHandler
-	router *router.RadixTree
+	router      *router.RadixTree
+	middlewares []Middleware
+	config      *HTTPConfig
+	mu          sync.RWMutex
 }
 
 // NewHTTPHandler 创建HTTP处理器
 func NewHTTPHandler(pool *pool.ConnectionPool, router *router.RadixTree) *HTTPHandler {
+	return NewHTTPHandlerWithConfig(pool, router, DefaultHTTPConfig())
+}
+
+// NewHTTPHandlerWithConfig 使用配置创建HTTP处理器
+func NewHTTPHandlerWithConfig(pool *pool.ConnectionPool, router *router.RadixTree, config *HTTPConfig) *HTTPHandler {
 	handler := &HTTPHandler{
 		BaseHandler: common.NewBaseHandler(pool),
 		router:      router,
+		middlewares: make([]Middleware, 0),
+		config:      config,
+	}
+	return handler
+}
+
+// AddMiddleware 添加中间件
+func (h *HTTPHandler) AddMiddleware(middleware Middleware) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.middlewares = append(h.middlewares, middleware)
+	logger.Info("Added HTTP middleware")
+}
+
+// buildMiddlewareChain 构建中间件链
+func (h *HTTPHandler) buildMiddlewareChain(handler http.Handler) http.Handler {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	// 从后往前应用中间件
+	for i := len(h.middlewares) - 1; i >= 0; i-- {
+		handler = h.middlewares[i](handler)
 	}
 	return handler
 }
@@ -73,28 +131,41 @@ func (h *HTTPHandler) Handle(connID string, conn net.Conn, initialData []byte) {
 	// 创建响应写入器
 	w := NewResponseWriter(conn)
 
-	// 使用radix树路由请求
-	path := req.URL.Path
-	nodeIDs := h.router.Search(path)
+	// 创建基础处理器
+	baseHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 使用radix树路由请求
+		path := r.URL.Path
+		nodeIDs := h.router.Search(path)
 
-	statusCode := http.StatusOK
-	if len(nodeIDs) > 0 {
-		// 这里简化处理，实际应用中需要根据nodeIDs找到对应的处理函数
-		// 为了演示，我们简单地返回一个成功响应
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Hello from Radix Tree Router!"))
-	} else {
-		// 未找到匹配的路由
-		statusCode = http.StatusNotFound
-		w.WriteHeader(statusCode)
-		w.Write([]byte("404 Not Found"))
-	}
+		if len(nodeIDs) > 0 {
+			// 这里简化处理，实际应用中需要根据nodeIDs找到对应的处理函数
+			// 为了演示，我们简单地返回一个成功响应
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte(`{"message": "Hello from Enhanced HTTP Handler!", "path": "` + path + `"}`))
+		} else {
+			// 未找到匹配的路由
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusNotFound)
+			w.Write([]byte(`{"error": "404 Not Found", "path": "` + path + `"}`))
+		}
+	})
+
+	// 应用中间件链
+	handler := h.buildMiddlewareChain(baseHandler)
+
+	// 处理请求
+	handler.ServeHTTP(w, req)
 
 	// 计算请求持续时间
 	duration := time.Since(startTime).Seconds()
 
 	// 记录请求
-	observability.RecordRequest("http", path, fmt.Sprintf("%d", statusCode), duration)
+	statusCode := w.Status()
+	if statusCode == 0 {
+		statusCode = http.StatusOK
+	}
+	observability.RecordRequest("http", req.URL.Path, fmt.Sprintf("%d", statusCode), duration)
 
 	// 检查连接是否需要保持
 	if !w.keepAlive {
@@ -106,17 +177,69 @@ func (h *HTTPHandler) Handle(connID string, conn net.Conn, initialData []byte) {
 	}
 }
 
-// ResponseWriter 实现http.ResponseWriter接口
-type ResponseWriter struct {
-	conn       net.Conn
-	statusCode int
-	headers    http.Header
-	keepAlive  bool
+// LoggingMiddleware 日志中间件
+func LoggingMiddleware() Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			start := time.Now()
+			next.ServeHTTP(w, r)
+			duration := time.Since(start)
+
+			logger.Info(fmt.Sprintf("HTTP %s %s - %v", r.Method, r.URL.Path, duration))
+		})
+	}
+}
+
+// RecoveryMiddleware 恢复中间件
+func RecoveryMiddleware() Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			defer func() {
+				if err := recover(); err != nil {
+					logger.Error(fmt.Sprintf("HTTP panic recovered: %v", err))
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusInternalServerError)
+					w.Write([]byte(`{"error": "Internal Server Error"}`))
+				}
+			}()
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// CORSMiddleware CORS中间件
+func CORSMiddleware() Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Access-Control-Allow-Origin", "*")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+
+			if r.Method == "OPTIONS" {
+				w.WriteHeader(http.StatusOK)
+				return
+			}
+
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
+// EnhancedResponseWriter 增强的响应写入器
+type EnhancedResponseWriter struct {
+	conn          net.Conn
+	statusCode    int
+	headers       http.Header
+	keepAlive     bool
+	headerSent    bool
+	contentLength int64
+	written       int64
+	mu            sync.Mutex
 }
 
 // NewResponseWriter 创建响应写入器
-func NewResponseWriter(conn net.Conn) *ResponseWriter {
-	return &ResponseWriter{
+func NewResponseWriter(conn net.Conn) *EnhancedResponseWriter {
+	return &EnhancedResponseWriter{
 		conn:      conn,
 		headers:   make(http.Header),
 		keepAlive: true,
@@ -124,26 +247,47 @@ func NewResponseWriter(conn net.Conn) *ResponseWriter {
 }
 
 // Write 写入响应体
-func (w *ResponseWriter) Write(b []byte) (int, error) {
-	if w.statusCode == 0 {
+func (w *EnhancedResponseWriter) Write(b []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if !w.headerSent {
 		w.WriteHeader(http.StatusOK)
 	}
 
-	// 写入响应体
-	return w.conn.Write(b)
+	n, err := w.conn.Write(b)
+	w.written += int64(n)
+	return n, err
 }
 
 // WriteHeader 写入状态码
-func (w *ResponseWriter) WriteHeader(statusCode int) {
-	if w.statusCode != 0 {
+func (w *EnhancedResponseWriter) WriteHeader(statusCode int) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.headerSent {
 		return
 	}
 
 	w.statusCode = statusCode
+	w.headerSent = true
 
 	// 构建响应头
 	var buf strings.Builder
 	buf.WriteString(fmt.Sprintf("HTTP/1.1 %d %s\r\n", statusCode, http.StatusText(statusCode)))
+
+	// 设置默认头部
+	if w.headers.Get("Content-Type") == "" {
+		w.headers.Set("Content-Type", "text/plain; charset=utf-8")
+	}
+
+	if w.headers.Get("Date") == "" {
+		w.headers.Set("Date", time.Now().UTC().Format(http.TimeFormat))
+	}
+
+	if w.headers.Get("Server") == "" {
+		w.headers.Set("Server", "MuxCore/1.0")
+	}
 
 	// 写入响应头
 	for k, v := range w.headers {
@@ -166,6 +310,41 @@ func (w *ResponseWriter) WriteHeader(statusCode int) {
 }
 
 // Header 获取响应头
-func (w *ResponseWriter) Header() http.Header {
+func (w *EnhancedResponseWriter) Header() http.Header {
 	return w.headers
+}
+
+// Flush 刷新缓冲区（实现http.Flusher接口）
+func (w *EnhancedResponseWriter) Flush() {
+	// TCP连接自动刷新，这里可以添加额外的刷新逻辑
+}
+
+// Hijack 劫持连接（实现http.Hijacker接口）
+func (w *EnhancedResponseWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	return w.conn, bufio.NewReadWriter(bufio.NewReader(w.conn), bufio.NewWriter(w.conn)), nil
+}
+
+// CloseNotify 连接关闭通知（实现http.CloseNotifier接口）
+func (w *EnhancedResponseWriter) CloseNotify() <-chan bool {
+	ch := make(chan bool, 1)
+	// 简化实现，实际应该监听连接状态
+	go func() {
+		// 这里应该实现真正的连接关闭检测
+		ch <- true
+	}()
+	return ch
+}
+
+// Size 返回已写入的字节数
+func (w *EnhancedResponseWriter) Size() int64 {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.written
+}
+
+// Status 返回状态码
+func (w *EnhancedResponseWriter) Status() int {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.statusCode
 }

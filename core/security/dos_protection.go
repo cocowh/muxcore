@@ -20,14 +20,14 @@ type Fingerprint struct {
 // DOSProtector  DoS防护管理器
 
 type DOSProtector struct {
-	mutex              sync.RWMutex
-	fingerprints       map[string]*Fingerprint
-	threshold          int           // 阈值配置
-	windowSize         time.Duration // 时间窗口
-	cleanupInterval    time.Duration // 清理间隔
-	blockDuration      time.Duration // 阻止 duration
-	blockedIPs         map[string]time.Time
-	enabled            bool
+	mutex           sync.RWMutex
+	fingerprints    map[string]*Fingerprint
+	threshold       int           // 阈值配置
+	windowSize      time.Duration // 时间窗口
+	cleanupInterval time.Duration // 清理间隔
+	blockDuration   time.Duration // 阻止 duration
+	blockedIPs      map[string]time.Time
+	enabled         bool
 }
 
 // NewDOSProtector 创建DoS防护实例

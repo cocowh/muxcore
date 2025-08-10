@@ -4,9 +4,6 @@
 Muxcore是一个高性能、可扩展的多协议复用网络框架，支持在同一端口上处理HTTP/1.x/2、WebSocket、gRPC以及自定义协议。
 
 ## 架构概述
-
-![架构图](https://i.imgur.com/architecture.png)
-
 Muxcore的核心架构包括：
 
 1. **Listener**: 监听传入连接

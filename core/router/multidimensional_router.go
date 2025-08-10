@@ -2,6 +2,7 @@ package router
 
 import (
 	"sync"
+	"time"
 
 	"github.com/cocowh/muxcore/pkg/logger"
 )
@@ -17,12 +18,47 @@ const (
 	DimensionAPIVersion RouteDimension = "api_version"
 )
 
+// NodeStatus 节点状态
+type NodeStatus int
+
+const (
+	NodeHealthy NodeStatus = iota
+	NodeUnhealthy
+	NodeMaintenance
+)
+
 // RouteNode 路由节点
 type RouteNode struct {
-	ID       string
-	Address  string
-	Capacity int
-	Load     int
+	ID              string
+	Address         string
+	Capacity        int
+	Load            int
+	Status          NodeStatus
+	LastHealthCheck time.Time
+	ResponseTime    time.Duration
+	Weight          float64
+	Connections     int
+	FailureCount    int
+	SuccessCount    int
+}
+
+// LoadBalanceStrategy 负载均衡策略
+type LoadBalanceStrategy int
+
+const (
+	RoundRobin LoadBalanceStrategy = iota
+	WeightedRoundRobin
+	LeastConnections
+	LeastResponseTime
+	ConsistentHashStrategy
+)
+
+// MultidimensionalRouterConfig 路由器配置
+type MultidimensionalRouterConfig struct {
+	Strategy            LoadBalanceStrategy
+	HealthCheckInterval time.Duration
+	MaxFailures         int
+	RecoveryThreshold   int
 }
 
 // MultidimensionalRouter 多维度路由矩阵
@@ -30,15 +66,48 @@ type MultidimensionalRouter struct {
 	nodes            map[string]*RouteNode
 	rules            map[RouteDimension]map[string][]string
 	weights          map[RouteDimension]float64
+	config           *MultidimensionalRouterConfig
 	mutex            sync.RWMutex
+	roundRobinIndex  map[string]int
+	consistentHash   *ConsistentHashRing
+}
+
+// ConsistentHashRing 一致性哈希环
+type ConsistentHashRing struct {
+	hashRing map[uint32]string
+	sortedHashes []uint32
+	replicas int
+	mutex sync.RWMutex
+}
+
+// NewConsistentHashRing 创建一致性哈希环
+func NewConsistentHashRing(replicas int) *ConsistentHashRing {
+	return &ConsistentHashRing{
+		hashRing:     make(map[uint32]string),
+		sortedHashes: make([]uint32, 0),
+		replicas:     replicas,
+	}
 }
 
 // NewMultidimensionalRouter 创建多维度路由矩阵
 func NewMultidimensionalRouter() *MultidimensionalRouter {
+	return NewMultidimensionalRouterWithConfig(&MultidimensionalRouterConfig{
+		Strategy:            WeightedRoundRobin,
+		HealthCheckInterval: 30 * time.Second,
+		MaxFailures:         3,
+		RecoveryThreshold:   5,
+	})
+}
+
+// NewMultidimensionalRouterWithConfig 使用配置创建多维度路由矩阵
+func NewMultidimensionalRouterWithConfig(config *MultidimensionalRouterConfig) *MultidimensionalRouter {
 	router := &MultidimensionalRouter{
-		nodes:   make(map[string]*RouteNode),
-		rules:   make(map[RouteDimension]map[string][]string),
-		weights: make(map[RouteDimension]float64),
+		nodes:           make(map[string]*RouteNode),
+		rules:           make(map[RouteDimension]map[string][]string),
+		weights:         make(map[RouteDimension]float64),
+		config:          config,
+		roundRobinIndex: make(map[string]int),
+		consistentHash:  NewConsistentHashRing(100),
 	}
 
 	// 设置默认权重
@@ -57,8 +126,40 @@ func NewMultidimensionalRouter() *MultidimensionalRouter {
 		router.rules[dim] = make(map[string][]string)
 	}
 
-	logger.Info("Initialized multidimensional router with default weights")
+	// 启动健康检查
+	go router.startHealthCheck()
+
+	logger.Info("Initialized multidimensional router with strategy: ", config.Strategy)
 	return router
+}
+
+// startHealthCheck 启动健康检查
+func (r *MultidimensionalRouter) startHealthCheck() {
+	ticker := time.NewTicker(r.config.HealthCheckInterval)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		r.performHealthCheck()
+	}
+}
+
+// performHealthCheck 执行健康检查
+func (r *MultidimensionalRouter) performHealthCheck() {
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	for _, node := range r.nodes {
+		// 简单的健康检查逻辑
+		if node.FailureCount >= r.config.MaxFailures {
+			node.Status = NodeUnhealthy
+			logger.Warn("Node marked as unhealthy: ", node.ID)
+		} else if node.Status == NodeUnhealthy && node.SuccessCount >= r.config.RecoveryThreshold {
+			node.Status = NodeHealthy
+			node.FailureCount = 0
+			logger.Info("Node recovered: ", node.ID)
+		}
+		node.LastHealthCheck = time.Now()
+	}
 }
 
 // AddNode 添加路由节点
@@ -151,10 +252,49 @@ func (r *MultidimensionalRouter) SelectNode(criteria map[RouteDimension]string) 
 		return nil
 	}
 
+	// 获取候选节点
+	candidates := r.getCandidateNodes(criteria)
+	if len(candidates) == 0 {
+		logger.Warn("No candidate nodes found for criteria")
+		return nil
+	}
+
+	// 根据负载均衡策略选择节点
+	var selectedNode *RouteNode
+	switch r.config.Strategy {
+	case RoundRobin:
+		selectedNode = r.selectRoundRobin(candidates)
+	case WeightedRoundRobin:
+		selectedNode = r.selectWeightedRoundRobin(candidates)
+	case LeastConnections:
+		selectedNode = r.selectLeastConnections(candidates)
+	case LeastResponseTime:
+		selectedNode = r.selectLeastResponseTime(candidates)
+	case ConsistentHashStrategy:
+		selectedNode = r.selectConsistentHash(candidates, criteria)
+	default:
+		selectedNode = r.selectWeightedRoundRobin(candidates)
+	}
+
+	if selectedNode != nil {
+		logger.Debug("Selected route node: ", selectedNode.ID, " using strategy: ", r.config.Strategy)
+		// 更新连接数
+		selectedNode.Connections++
+	}
+
+	return selectedNode
+}
+
+// getCandidateNodes 获取候选节点
+func (r *MultidimensionalRouter) getCandidateNodes(criteria map[RouteDimension]string) []*RouteNode {
 	// 计算节点得分
 	scores := make(map[string]float64)
 	for nodeID := range r.nodes {
-		scores[nodeID] = 0.0
+		node := r.nodes[nodeID]
+		// 只考虑健康的节点
+		if node.Status == NodeHealthy {
+			scores[nodeID] = 0.0
+		}
 	}
 
 	// 根据每个维度的规则和权重计算得分
@@ -169,26 +309,110 @@ func (r *MultidimensionalRouter) SelectNode(criteria map[RouteDimension]string) 
 		}
 	}
 
-	// 找到得分最高的节点
+	// 收集候选节点
+	var candidates []*RouteNode
+	for nodeID, score := range scores {
+		if score > 0 {
+			candidates = append(candidates, r.nodes[nodeID])
+		}
+	}
+
+	return candidates
+}
+
+// selectRoundRobin 轮询选择
+func (r *MultidimensionalRouter) selectRoundRobin(candidates []*RouteNode) *RouteNode {
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	key := "default"
+	index := r.roundRobinIndex[key]
+	selected := candidates[index%len(candidates)]
+	r.roundRobinIndex[key] = (index + 1) % len(candidates)
+
+	return selected
+}
+
+// selectWeightedRoundRobin 加权轮询选择
+func (r *MultidimensionalRouter) selectWeightedRoundRobin(candidates []*RouteNode) *RouteNode {
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	// 计算总权重
+	totalWeight := 0.0
+	for _, node := range candidates {
+		totalWeight += node.Weight
+	}
+
+	if totalWeight == 0 {
+		return r.selectRoundRobin(candidates)
+	}
+
+	// 加权选择
 	var bestNode *RouteNode
 	maxScore := -1.0
 
-	for nodeID, score := range scores {
-		node := r.nodes[nodeID]
-		// 考虑节点负载
-		adjustedScore := score * float64(node.Capacity-node.Load) / float64(node.Capacity)
-
-		if adjustedScore > maxScore {
-			maxScore = adjustedScore
+	for _, node := range candidates {
+		// 考虑权重和负载
+		score := node.Weight * float64(node.Capacity-node.Load) / float64(node.Capacity)
+		if score > maxScore {
+			maxScore = score
 			bestNode = node
 		}
 	}
 
-	if bestNode != nil {
-		logger.Debug("Selected route node: ", bestNode.ID, " with score: ", maxScore)
+	return bestNode
+}
+
+// selectLeastConnections 最少连接选择
+func (r *MultidimensionalRouter) selectLeastConnections(candidates []*RouteNode) *RouteNode {
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	var bestNode *RouteNode
+	minConnections := int(^uint(0) >> 1) // 最大int值
+
+	for _, node := range candidates {
+		if node.Connections < minConnections {
+			minConnections = node.Connections
+			bestNode = node
+		}
 	}
 
 	return bestNode
+}
+
+// selectLeastResponseTime 最短响应时间选择
+func (r *MultidimensionalRouter) selectLeastResponseTime(candidates []*RouteNode) *RouteNode {
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	var bestNode *RouteNode
+	minResponseTime := time.Duration(^uint64(0) >> 1) // 最大duration值
+
+	for _, node := range candidates {
+		if node.ResponseTime < minResponseTime {
+			minResponseTime = node.ResponseTime
+			bestNode = node
+		}
+	}
+
+	return bestNode
+}
+
+// selectConsistentHash 一致性哈希选择
+func (r *MultidimensionalRouter) selectConsistentHash(candidates []*RouteNode, criteria map[RouteDimension]string) *RouteNode {
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	// 简单实现：使用第一个候选节点
+	// 实际实现应该基于一致性哈希算法
+	return candidates[0]
 }
 
 // GetNode 获取节点信息

@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/cocowh/muxcore/core/detector"
-	coreNet "github.com/cocowh/muxcore/core/net"
+	coreNet "github.com/cocowh/muxcore/core/network"
 	"github.com/cocowh/muxcore/core/pool"
 	"github.com/cocowh/muxcore/core/performance"
 	"github.com/cocowh/muxcore/pkg/errors"
