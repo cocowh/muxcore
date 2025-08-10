@@ -1,0 +1,37 @@
+server:
+  address: ":8080"
+  read_timeout: 30
+  write_timeout: 30
+  idle_timeout: 60
+
+monitor:
+  interval: 10  # 秒
+
+logger:
+  level: "info"
+  output: "stdout"
+  file_path: "/var/log/muxcore"
+  max_size: 100  # MB
+  max_age: 7  # 天
+
+protocols:
+  http:
+    enabled: true
+    max_connections: 1000
+  websocket:
+    enabled: true
+    max_connections: 500
+  grpc:
+    enabled: true
+    max_connections: 500
+  custom:
+    enabled: false
+
+security:
+  tls:
+    enabled: false
+    cert_file: "cert.pem"
+    key_file: "key.pem"
+  auth:
+    enabled: false
+    jwt_secret: "your-secret-key"
