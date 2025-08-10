@@ -164,7 +164,7 @@ func (rw *responseWriter) Write(data []byte) (int, error) {
 func (m *HTTPErrorMiddleware) writeErrorResponse(w http.ResponseWriter, r *http.Request, muxErr *MuxError) {
 	// 设置响应头
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("X-Error-Code", string(muxErr.Code))
+	w.Header().Set("X-Error-Code", fmt.Sprintf("%d", muxErr.Code))
 	w.Header().Set("X-Error-Category", string(muxErr.Category))
 	
 	// 确定HTTP状态码
@@ -174,7 +174,7 @@ func (m *HTTPErrorMiddleware) writeErrorResponse(w http.ResponseWriter, r *http.
 	// 构建错误响应
 	errorResp := HTTPErrorResponse{
 		Error:     muxErr.Error(),
-		Code:      string(muxErr.Code),
+		Code:      fmt.Sprintf("%d", muxErr.Code),
 		Message:   muxErr.Message,
 		Timestamp: time.Now(),
 	}
@@ -190,7 +190,7 @@ func (m *HTTPErrorMiddleware) writeErrorResponse(w http.ResponseWriter, r *http.
 	// 在调试模式下添加详细信息
 	if m.debugMode {
 		errorResp.Details = make(map[string]interface{})
-		errorResp.Details["level"] = string(muxErr.Level)
+		errorResp.Details["level"] = fmt.Sprintf("%d", muxErr.Level)
 		errorResp.Details["category"] = string(muxErr.Category)
 		
 		if muxErr.Context != nil {

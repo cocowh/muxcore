@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/cocowh/muxcore/core/handlers"
+	"github.com/cocowh/muxcore/core/handler"
 	"github.com/cocowh/muxcore/core/performance"
 	"github.com/cocowh/muxcore/pkg/logger"
 )
@@ -75,13 +75,13 @@ func main() {
 	performanceMonitor := performance.NewPerformanceMonitor(memoryManager, cpuManager, resourceManager, bufferPool)
 
 	// 2. 创建处理器管理器
-	processorManager := handlers.NewProcessorManager()
+	processorManager := handler.NewProcessorManager()
 
 	// 3. 注册模拟协议处理器
 	registerMockHandlers(processorManager)
 
 	// 4. 创建优化的协议处理器配置
-	config := &handlers.ProcessorConfig{
+	config := &handler.ProcessorConfig{
 		MaxConcurrency:    runtime.NumCPU() * 4,
 		QueueSize:         5000,
 		Timeout:           10 * time.Second,
@@ -96,7 +96,7 @@ func main() {
 	}
 
 	// 5. 创建优化的协议处理器
-	optimizedProcessor := handlers.NewOptimizedProtocolProcessor(config, processorManager, performanceMonitor, bufferPool)
+	optimizedProcessor := handler.NewOptimizedProtocolProcessor(config, processorManager, performanceMonitor, bufferPool)
 
 	// 6. 启动组件
 	performanceMonitor.Start()
@@ -142,7 +142,7 @@ func main() {
 }
 
 // registerMockHandlers 注册模拟处理器
-func registerMockHandlers(pm *handlers.ProcessorManager) {
+func registerMockHandlers(pm *handler.ProcessorManager) {
 	logger.Info("\n=== Registering Mock Protocol Handlers ===")
 
 	// HTTP处理器
@@ -187,7 +187,7 @@ func registerMockHandlers(pm *handlers.ProcessorManager) {
 }
 
 // displayConfiguration 显示配置
-func displayConfiguration(config *handlers.ProcessorConfig) {
+func displayConfiguration(config *handler.ProcessorConfig) {
 	logger.Info("\n=== Processor Configuration ===")
 	logger.Infof("Max Concurrency: %d", config.MaxConcurrency)
 	logger.Infof("Queue Size: %d", config.QueueSize)
@@ -202,7 +202,7 @@ func displayConfiguration(config *handlers.ProcessorConfig) {
 }
 
 // simulateProtocolProcessing 模拟协议处理
-func simulateProtocolProcessing(processor *handlers.OptimizedProtocolProcessor) {
+func simulateProtocolProcessing(processor *handler.OptimizedProtocolProcessor) {
 	protocols := []string{"http", "websocket", "grpc", "binary", "streaming"}
 	var wg sync.WaitGroup
 
@@ -255,7 +255,7 @@ func generateMockData(protocol string) []byte {
 }
 
 // displayProcessorMetrics 显示处理器指标
-func displayProcessorMetrics(processor *handlers.OptimizedProtocolProcessor) {
+func displayProcessorMetrics(processor *handler.OptimizedProtocolProcessor) {
 	logger.Info("\n=== Processor Metrics ===")
 	metrics := processor.GetMetrics()
 	if metrics != nil {
@@ -273,7 +273,7 @@ func displayProcessorMetrics(processor *handlers.OptimizedProtocolProcessor) {
 }
 
 // testBatchProcessing 测试批处理
-func testBatchProcessing(processor *handlers.OptimizedProtocolProcessor) {
+func testBatchProcessing(processor *handler.OptimizedProtocolProcessor) {
 	logger.Info("\n=== Testing Batch Processing ===")
 
 	var wg sync.WaitGroup
@@ -298,7 +298,7 @@ func testBatchProcessing(processor *handlers.OptimizedProtocolProcessor) {
 }
 
 // testCaching 测试缓存
-func testCaching(processor *handlers.OptimizedProtocolProcessor) {
+func testCaching(processor *handler.OptimizedProtocolProcessor) {
 	logger.Info("\n=== Testing Caching Functionality ===")
 
 	// 重复发送相同的数据以测试缓存
@@ -314,7 +314,7 @@ func testCaching(processor *handlers.OptimizedProtocolProcessor) {
 }
 
 // stressTestProcessor 压力测试处理器
-func stressTestProcessor(processor *handlers.OptimizedProtocolProcessor) {
+func stressTestProcessor(processor *handler.OptimizedProtocolProcessor) {
 	var wg sync.WaitGroup
 	stressLoad := 2000
 	protocols := []string{"http", "websocket", "grpc", "binary", "streaming"}
@@ -343,7 +343,7 @@ func stressTestProcessor(processor *handlers.OptimizedProtocolProcessor) {
 }
 
 // displayCacheStats 显示缓存统计
-func displayCacheStats(processor *handlers.OptimizedProtocolProcessor) {
+func displayCacheStats(processor *handler.OptimizedProtocolProcessor) {
 	logger.Info("\n=== Cache Statistics ===")
 	stats := processor.GetCacheStats()
 	for key, value := range stats {
@@ -352,11 +352,11 @@ func displayCacheStats(processor *handlers.OptimizedProtocolProcessor) {
 }
 
 // testConfigurationUpdate 测试配置更新
-func testConfigurationUpdate(processor *handlers.OptimizedProtocolProcessor) {
+func testConfigurationUpdate(processor *handler.OptimizedProtocolProcessor) {
 	logger.Info("\n=== Testing Configuration Update ===")
 
 	// 创建新配置
-	newConfig := &handlers.ProcessorConfig{
+	newConfig := &handler.ProcessorConfig{
 		MaxConcurrency:    runtime.NumCPU() * 6,
 		QueueSize:         8000,
 		Timeout:           15 * time.Second,
@@ -386,7 +386,7 @@ func testConfigurationUpdate(processor *handlers.OptimizedProtocolProcessor) {
 }
 
 // finalPerformanceReport 最终性能报告
-func finalPerformanceReport(processor *handlers.OptimizedProtocolProcessor) {
+func finalPerformanceReport(processor *handler.OptimizedProtocolProcessor) {
 	logger.Info("\n=== Final Performance Report ===")
 
 	// 显示最终指标

@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/cocowh/muxcore/core/detector"
-	"github.com/cocowh/muxcore/core/handlers"
+	"github.com/cocowh/muxcore/core/handler"
 	"github.com/cocowh/muxcore/core/router"
 	"github.com/cocowh/muxcore/pkg/logger"
 )
@@ -55,7 +55,7 @@ type DeploymentManager struct {
 	mutex            sync.RWMutex
 	config           NodeConfig
 	protocolDetector *detector.ProtocolDetector
-	processorManager *handlers.ProcessorManager
+	processorManager *handler.ProcessorManager
 	router           *router.MultidimensionalRouter
 }
 
@@ -63,7 +63,7 @@ type DeploymentManager struct {
 func NewDeploymentManager(
 	config NodeConfig,
 	protocolDetector *detector.ProtocolDetector,
-	processorManager *handlers.ProcessorManager,
+	processorManager *handler.ProcessorManager,
 	router *router.MultidimensionalRouter,
 ) *DeploymentManager {
 	manager := &DeploymentManager{

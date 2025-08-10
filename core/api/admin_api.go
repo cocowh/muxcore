@@ -6,7 +6,7 @@ import (
 	"time"
 
 	"github.com/cocowh/muxcore/core/governance"
-	"github.com/cocowh/muxcore/core/handlers"
+	"github.com/cocowh/muxcore/core/handler"
 	"github.com/cocowh/muxcore/core/router"
 	"github.com/cocowh/muxcore/pkg/logger"
 	"golang.org/x/net/websocket"
@@ -16,14 +16,14 @@ import (
 
 type AdminAPI struct {
 	protocolManager  *governance.ProtocolManager
-	processorManager *handlers.ProcessorManager
+	processorManager *handler.ProcessorManager
 	router           *router.MultidimensionalRouter
 }
 
 // NewAdminAPI 创建智能运维接口实例
 func NewAdminAPI(
 	protocolManager *governance.ProtocolManager,
-	processorManager *handlers.ProcessorManager,
+	processorManager *handler.ProcessorManager,
 	router *router.MultidimensionalRouter,
 ) *AdminAPI {
 	api := &AdminAPI{

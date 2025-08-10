@@ -8,7 +8,7 @@ import (
 	"github.com/cocowh/muxcore/core/bus"
 	"github.com/cocowh/muxcore/core/config"
 	"github.com/cocowh/muxcore/core/detector"
-	handlers "github.com/cocowh/muxcore/core/handlers"
+	handlers "github.com/cocowh/muxcore/core/handler"
 	"github.com/cocowh/muxcore/core/listener"
 	"github.com/cocowh/muxcore/core/observability"
 	"github.com/cocowh/muxcore/core/performance"

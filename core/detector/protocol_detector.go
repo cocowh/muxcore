@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	common "github.com/cocowh/muxcore/core/common"
+	common "github.com/cocowh/muxcore/core/shared"
 	"github.com/cocowh/muxcore/core/performance"
 	poolpkg "github.com/cocowh/muxcore/core/pool"
 	"github.com/cocowh/muxcore/pkg/errors"

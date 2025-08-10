@@ -7,7 +7,7 @@ import (
 	"github.com/cocowh/muxcore/core/bus"
 	"github.com/cocowh/muxcore/core/config"
 	"github.com/cocowh/muxcore/core/detector"
-	handlerpkg "github.com/cocowh/muxcore/core/handlers"
+	handlerpkg "github.com/cocowh/muxcore/core/handler"
 	grpcpkg "github.com/cocowh/muxcore/core/grpc"
 	httppkg "github.com/cocowh/muxcore/core/http"
 	"github.com/cocowh/muxcore/core/listener"

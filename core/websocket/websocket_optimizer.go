@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/cocowh/muxcore/core/common"
+	"github.com/cocowh/muxcore/core/shared"
 	"github.com/cocowh/muxcore/core/pool"
 	"github.com/cocowh/muxcore/pkg/logger"
 	"golang.org/x/net/websocket"
@@ -156,7 +156,7 @@ func (rl *RateLimiter) Allow() bool {
 
 // OptimizedWebSocketHandler 优化的WebSocket处理器
 type OptimizedWebSocketHandler struct {
-	*common.BaseHandler
+	*shared.BaseHandler
 	config      *OptimizedWebSocketConfig
 	connections map[string]*OptimizedConnection
 	metrics     *WebSocketMetrics
@@ -175,7 +175,7 @@ func NewOptimizedWebSocketHandler(pool *pool.ConnectionPool, config *OptimizedWe
 	ctx, cancel := context.WithCancel(context.Background())
 	
 	h := &OptimizedWebSocketHandler{
-		BaseHandler: common.NewBaseHandler(pool),
+		BaseHandler: shared.NewBaseHandler(pool),
 		config:      config,
 		connections: make(map[string]*OptimizedConnection),
 		metrics:     &WebSocketMetrics{},

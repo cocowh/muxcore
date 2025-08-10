@@ -13,7 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	common "github.com/cocowh/muxcore/core/common"
+	common "github.com/cocowh/muxcore/core/shared"
 	"github.com/cocowh/muxcore/core/observability"
 	"github.com/cocowh/muxcore/core/pool"
 	"github.com/cocowh/muxcore/core/router"
