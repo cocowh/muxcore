@@ -14,6 +14,7 @@ import (
 	"github.com/cocowh/muxcore/core/config"
 	"github.com/cocowh/muxcore/core/detector"
 	"github.com/cocowh/muxcore/core/handler"
+	"github.com/cocowh/muxcore/core/listener"
 	"github.com/cocowh/muxcore/core/observability"
 	"github.com/cocowh/muxcore/core/performance"
 	"github.com/cocowh/muxcore/core/pool"
@@ -34,6 +35,7 @@ type ControlPlane struct {
 	messageBus         *bus.MessageBus
 	reliabilityManager *reliability.ReliabilityManager
 	optimizedRouter    *router.OptimizedRouter
+	listener           *listener.Listener
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -71,6 +73,11 @@ func (cp *ControlPlane) Start() error {
 		return fmt.Errorf("failed to start router: %w", err)
 	}
 
+	// 启动网络监听器
+	if err := cp.listener.Start(); err != nil {
+		return fmt.Errorf("failed to start listener: %w", err)
+	}
+
 	// 启动监控循环
 	cp.wg.Add(1)
 	go cp.monitorLoop()
@@ -97,6 +104,9 @@ func (cp *ControlPlane) Stop() error {
 	if cp.cancel != nil {
 		cp.cancel()
 	}
+
+	// 停止监听器
+	cp.listener.Stop()
 
 	// 停止路由器
 	cp.optimizedRouter.Stop()

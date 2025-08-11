@@ -120,8 +120,9 @@ monitor:
 
 logger:
   level: "info"  # 日志级别
-  output: "stdout"  # 输出位置
-  file_path: "/var/log/muxcore"  # 日志文件路径
+  log_dir: "/var/log/"
+  base_name: "muxcore"
+  format: "text"
   max_size: 100  # 单个日志文件最大大小(MB)
   max_age: 7  # 日志文件保留天数
 

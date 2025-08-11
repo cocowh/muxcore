@@ -11,9 +11,9 @@ monitor:
     address: ":9090"
 
 logger:
+  log_dir: "./logs"
   level: "info"
-  output: "stdout"
-  file_path: "/var/log/muxcore"
+  base_name: "muxcore"
   max_size: 100  # MB
   max_age: 7  # 天
 

@@ -7,8 +7,8 @@ import (
 
 	"github.com/cocowh/muxcore/core/detector"
 	coreNet "github.com/cocowh/muxcore/core/network"
-	"github.com/cocowh/muxcore/core/pool"
 	"github.com/cocowh/muxcore/core/performance"
+	"github.com/cocowh/muxcore/core/pool"
 	"github.com/cocowh/muxcore/pkg/errors"
 	"github.com/cocowh/muxcore/pkg/logger"
 )
@@ -90,16 +90,16 @@ func (l *Listener) acceptLoop() {
 			}
 
 			// 获取缓冲区大小
-	bufferSize := 4096 // 默认缓冲区大小
-	if l.bufferPool != nil {
-		// 从缓冲区池获取一个缓冲区以确定大小
-		buffer := l.bufferPool.Get()
-		bufferSize = len(buffer.Bytes())
-		l.bufferPool.Put(buffer)
-	}
+			bufferSize := 4096 // 默认缓冲区大小
+			if l.bufferPool != nil {
+				// 从缓冲区池获取一个缓冲区以确定大小
+				buffer := l.bufferPool.Get()
+				bufferSize = len(buffer.Bytes())
+				l.bufferPool.Put(buffer)
+			}
 
-	// 创建带缓冲的连接
-	bufConn := coreNet.NewBufferedConn(conn, bufferSize)
+			// 创建带缓冲的连接
+			bufConn := coreNet.NewBufferedConn(conn, bufferSize)
 
 			// 将连接放入池中
 			connID := l.pool.AddConnection(bufConn)

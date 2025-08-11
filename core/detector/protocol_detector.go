@@ -9,6 +9,7 @@ import (
 	"context"
 	"hash/fnv"
 	"net"
+	"strconv"
 	"sync"
 	"time"
 
@@ -207,9 +208,17 @@ func (d *ProtocolDetector) DetectProtocol(connID string, conn net.Conn) {
 	d.mutex.RUnlock()
 
 	if !exists {
-		muxErr := errors.ProtocolError(errors.ErrCodeProtocolUnsupported, "no handler found for protocol").WithContext("protocol", protocol).WithContext("connectionID", connID)
-		errors.Handle(d.ctx, muxErr)
+		// 如果协议未知，则这不是系统错误，只是一个不支持的协议。
+		// 在较低级别记录它，并在没有堆栈跟踪的情况下关闭连接。
+		if protocol == "unknown" {
+			logger.Warnf("Unsupported protocol from connection %s, closing.", connID)
+		} else {
+			// 如果检测到协议但没有处理器，则这是一个配置错误。
+			muxErr := errors.ProtocolError(errors.ErrCodeProtocolUnsupported, "no handler found for protocol").WithContext("protocol", protocol).WithContext("connectionID", connID)
+			errors.Handle(d.ctx, muxErr)
+		}
 		d.pool.RemoveConnection(connID)
+		conn.Close() // 显式关闭连接
 		return
 	}
 
@@ -219,11 +228,12 @@ func (d *ProtocolDetector) DetectProtocol(connID string, conn net.Conn) {
 
 // parseAddr 解析地址获取IP和端口
 func parseAddr(addr string) (string, int, error) {
-	// 简化实现
-	ip := ""
-	port := 0
-	// 实际应用中需要使用net.SplitHostPort
-	return ip, port, nil
+	ip, portStr, err := net.SplitHostPort(addr)
+	var port int
+	if err == nil {
+		port, err = strconv.Atoi(portStr)
+	}
+	return ip, port, err
 }
 
 // firstLayerDetection 第一层检测：基于Bloom Filter的快速分类

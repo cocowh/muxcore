@@ -12,6 +12,7 @@ import (
 	"github.com/cocowh/muxcore/core/config"
 	"github.com/cocowh/muxcore/core/detector"
 	"github.com/cocowh/muxcore/core/handler"
+	"github.com/cocowh/muxcore/core/listener"
 	"github.com/cocowh/muxcore/core/observability"
 	"github.com/cocowh/muxcore/core/performance"
 	"github.com/cocowh/muxcore/core/pool"
@@ -117,6 +118,7 @@ func (b *ControlPlaneBuilder) Build() (*ControlPlane, error) {
 	// 获取配置
 	poolConfig := b.configManager.GetPoolConfig()
 	observabilityConfig := b.configManager.GetObservabilityConfig()
+	serverConfig := b.configManager.GetServerConfig()
 
 	// 创建协程池
 	goroutinePool := pool.NewGoroutinePool(poolConfig.Goroutine.Workers, poolConfig.Goroutine.QueueSize)
@@ -187,7 +189,7 @@ func (b *ControlPlaneBuilder) Build() (*ControlPlane, error) {
 	}
 	optimizedRouter := router.NewOptimizedRouter(routerConfig)
 
-	// 创建控制平面
+	// 构造控制平面实例
 	controlPlane := &ControlPlane{
 		configManager:      b.configManager,
 		goroutinePool:      goroutinePool,
@@ -206,6 +208,9 @@ func (b *ControlPlaneBuilder) Build() (*ControlPlane, error) {
 		return nil, fmt.Errorf("failed to register protocol handlers: %w", err)
 	}
 
+	// 创建并注入网络监听器
+	controlPlane.listener = listener.New(serverConfig.Address, controlPlane.detector, controlPlane.connectionPool, controlPlane.goroutinePool, controlPlane.bufferPool)
+
 	return controlPlane, nil
 }
 
@@ -218,18 +223,21 @@ func (b *ControlPlaneBuilder) registerProtocolHandlers(cp *ControlPlane) error {
 	if protocolConfig.HTTP.Enabled {
 		httpHandler := http.NewHTTPHandler(cp.connectionPool, cp.optimizedRouter.GetRadixTree())
 		cp.processorManager.RegisterHandler("http", httpHandler)
+		cp.detector.RegisterHandler("http", httpHandler)
 	}
 
 	// 创建gRPC处理器
 	if protocolConfig.GRPC.Enabled {
 		grpcHandler := grpc.NewGRPCHandler(cp.connectionPool)
 		cp.processorManager.RegisterHandler("grpc", grpcHandler)
+		cp.detector.RegisterHandler("grpc", grpcHandler)
 	}
 
 	// 创建WebSocket处理器
 	if protocolConfig.WebSocket.Enabled {
 		websocketHandler := websocket.NewWebSocketHandler(cp.connectionPool, cp.messageBus)
 		cp.processorManager.RegisterHandler("websocket", websocketHandler)
+		cp.detector.RegisterHandler("websocket", websocketHandler)
 	}
 
 	return nil

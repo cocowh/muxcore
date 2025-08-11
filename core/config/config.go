@@ -273,7 +273,6 @@ func (cm *ConfigManager) GetLoggerConfig() LoggerConfig {
 	return LoggerConfig{
 		Level:           cm.viper.GetString("logger.level"),
 		Format:          cm.viper.GetString("logger.format"),
-		Output:          cm.viper.GetString("logger.output"),
 		LogDir:          cm.viper.GetString("logger.log_dir"),
 		BaseName:        cm.viper.GetString("logger.base_name"),
 		MaxSizeMB:       cm.viper.GetInt("logger.max_size_mb"),
@@ -344,7 +343,6 @@ type MonitorConfig struct {
 type LoggerConfig struct {
 	Level           string
 	Format          string
-	Output          string
 	LogDir          string
 	BaseName        string
 	MaxSizeMB       int

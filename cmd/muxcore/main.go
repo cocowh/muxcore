@@ -10,6 +10,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/cocowh/muxcore/core/config"
 	"github.com/cocowh/muxcore/core/control"
 	"github.com/cocowh/muxcore/pkg/logger"
 	"github.com/spf13/cobra"
@@ -139,8 +140,56 @@ func validateConfig(cmd *cobra.Command, args []string) error {
 	}
 
 	logger.Infof("Validating configuration file: %s", configPath)
-	// TODO: 实现配置验证逻辑
+
+	// 实现配置验证逻辑
+	configManager, err := config.NewConfigManager(configPath)
+	if err != nil {
+		logger.Errorf("Configuration validation failed: %v", err)
+		return fmt.Errorf("configuration validation failed: %w", err)
+	}
+
+	// 验证关键配置项
+	serverConfig := configManager.GetServerConfig()
+	if serverConfig.Address == "" {
+		return fmt.Errorf("server address cannot be empty")
+	}
+
+	protocolConfig := configManager.GetProtocolConfig()
+	if !protocolConfig.HTTP.Enabled && !protocolConfig.WebSocket.Enabled && !protocolConfig.GRPC.Enabled {
+		return fmt.Errorf("at least one protocol must be enabled")
+	}
+
+	poolConfig := configManager.GetPoolConfig()
+	if poolConfig.Connection.MaxSize <= 0 {
+		return fmt.Errorf("connection pool max size must be positive")
+	}
+	if poolConfig.Goroutine.QueueSize <= 0 {
+		return fmt.Errorf("goroutine pool queue size must be positive")
+	}
+
+	reliabilityConfig := configManager.GetReliabilityConfig()
+	if reliabilityConfig.CircuitBreaker.FailureThreshold < 0 || reliabilityConfig.CircuitBreaker.FailureThreshold > 1 {
+		return fmt.Errorf("circuit breaker failure threshold must be between 0 and 1")
+	}
+
+	observabilityConfig := configManager.GetObservabilityConfig()
+	if observabilityConfig.SamplingRate < 0 || observabilityConfig.SamplingRate > 1 {
+		return fmt.Errorf("observability sampling rate must be between 0 and 1")
+	}
+
+	securityConfig := configManager.GetSecurityConfig()
+	if securityConfig.SecurityLevel < 0 || securityConfig.SecurityLevel > 3 {
+		return fmt.Errorf("security level must be between 0 and 3")
+	}
+
 	logger.Info("Configuration validation completed successfully")
+	logger.Info("✓ Server configuration valid")
+	logger.Info("✓ Protocol configuration valid")
+	logger.Info("✓ Pool configuration valid")
+	logger.Info("✓ Reliability configuration valid")
+	logger.Info("✓ Observability configuration valid")
+	logger.Info("✓ Security configuration valid")
+
 	return nil
 }
 
