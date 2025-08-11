@@ -1,9 +1,14 @@
+// Copyright (c) 2025 cocowh. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package security
 
 import (
 	"bytes"
 	"sync"
 
+	"github.com/cocowh/muxcore/pkg/errors"
 	"github.com/cocowh/muxcore/pkg/logger"
 )
 
@@ -30,9 +35,9 @@ type DPIEngine struct {
 // NewDPIEngine 创建深度包检测引擎实例
 func NewDPIEngine(maxPacketSize int) *DPIEngine {
 	dpi := &DPIEngine{
-	rules:         make([]Rule, 0),
-	enabled:       true,
-	maxPacketSize: maxPacketSize,
+		rules:         make([]Rule, 0),
+		enabled:       true,
+		maxPacketSize: maxPacketSize,
 	}
 
 	// 默认加载一些常见规则
@@ -81,24 +86,24 @@ func (dpi *DPIEngine) AddRule(rule Rule) {
 }
 
 // RemoveRule 移除规则
-func (dpi *DPIEngine) RemoveRule(ruleID string) bool {
+func (dpi *DPIEngine) RemoveRule(ruleID string) error {
 	dpi.mutex.Lock()
 	defer dpi.mutex.Unlock()
 
 	for i, rule := range dpi.rules {
 		if rule.ID == ruleID {
 			dpi.rules = append(dpi.rules[:i], dpi.rules[i+1:]...)
-			return true
+			return nil
 		}
 	}
 
-	return false
+	return errors.New(errors.ErrCodeGovernanceUnknown, errors.CategoryGovernance, errors.LevelWarn, "dpi rule not found")
 }
 
-// Detect 检测数据包
-func (dpi *DPIEngine) Detect(data []byte, protocol string) (bool, string, string) {
+// Detect 检测数据包（返回nil表示通过；返回错误表示阻断或告警）
+func (dpi *DPIEngine) Detect(data []byte, protocol string) *errors.MuxError {
 	if !dpi.enabled {
-		return false, "", ""
+		return nil
 	}
 
 	// 限制数据包大小
@@ -123,7 +128,7 @@ func (dpi *DPIEngine) Detect(data []byte, protocol string) (bool, string, string
 }
 
 // 检测HTTP包
-func (dpi *DPIEngine) detectHTTP(data []byte) (bool, string, string) {
+func (dpi *DPIEngine) detectHTTP(data []byte) *errors.MuxError {
 	// 检查HTTP请求方法
 	methods := [][]byte{
 		[]byte("GET "),
@@ -142,25 +147,25 @@ func (dpi *DPIEngine) detectHTTP(data []byte) (bool, string, string) {
 	}
 
 	if !isHTTP {
-		return false, "", ""
+		return nil
 	}
 
 	// 应用规则
 	for _, rule := range dpi.rules {
 		if bytes.Contains(data, rule.Pattern) {
 			logger.Warnf("DPI detected rule violation: %s (%s)", rule.Name, rule.Description)
-			return true, rule.Action, rule.ID
+			return errors.New(errors.ErrCodeGovernancePolicyViolation, errors.CategoryGovernance, errors.LevelWarn, "DPI rule matched: "+rule.ID)
 		}
 	}
 
-	return false, "", ""
+	return nil
 }
 
 // 检测WebSocket包
-func (dpi *DPIEngine) detectWebSocket(data []byte) (bool, string, string) {
+func (dpi *DPIEngine) detectWebSocket(data []byte) *errors.MuxError {
 	// 检查WebSocket帧
 	if len(data) < 2 {
-		return false, "", ""
+		return nil
 	}
 
 	// 检查WebSocket握手
@@ -170,7 +175,7 @@ func (dpi *DPIEngine) detectWebSocket(data []byte) (bool, string, string) {
 		for _, rule := range dpi.rules {
 			if bytes.Contains(data, rule.Pattern) {
 				logger.Warnf("DPI detected rule violation: %s (%s)", rule.Name, rule.Description)
-				return true, rule.Action, rule.ID
+				return errors.New(errors.ErrCodeGovernancePolicyViolation, errors.CategoryGovernance, errors.LevelWarn, "DPI rule matched: "+rule.ID)
 			}
 		}
 	}
@@ -178,14 +183,14 @@ func (dpi *DPIEngine) detectWebSocket(data []byte) (bool, string, string) {
 	// 处理WebSocket数据帧
 	// 这里简化处理，实际应解析WebSocket帧结构
 
-	return false, "", ""
+	return nil
 }
 
 // 检测GRPC包
-func (dpi *DPIEngine) detectGRPC(data []byte) (bool, string, string) {
+func (dpi *DPIEngine) detectGRPC(data []byte) *errors.MuxError {
 	// GRPC使用HTTP/2，这里简化处理
 	if len(data) < 9 {
-		return false, "", ""
+		return nil
 	}
 
 	// 检查HTTP/2帧头
@@ -196,25 +201,25 @@ func (dpi *DPIEngine) detectGRPC(data []byte) (bool, string, string) {
 		for _, rule := range dpi.rules {
 			if bytes.Contains(data, rule.Pattern) {
 				logger.Warnf("DPI detected rule violation: %s (%s)", rule.Name, rule.Description)
-				return true, rule.Action, rule.ID
+				return errors.New(errors.ErrCodeGovernancePolicyViolation, errors.CategoryGovernance, errors.LevelWarn, "DPI rule matched: "+rule.ID)
 			}
 		}
 	}
 
-	return false, "", ""
+	return nil
 }
 
 // 通用检测
-func (dpi *DPIEngine) detectGeneric(data []byte) (bool, string, string) {
+func (dpi *DPIEngine) detectGeneric(data []byte) *errors.MuxError {
 	// 应用规则到所有数据
 	for _, rule := range dpi.rules {
 		if bytes.Contains(data, rule.Pattern) {
 			logger.Warnf("DPI detected rule violation: %s (%s)", rule.Name, rule.Description)
-			return true, rule.Action, rule.ID
+			return errors.New(errors.ErrCodeGovernancePolicyViolation, errors.CategoryGovernance, errors.LevelWarn, "DPI rule matched: "+rule.ID)
 		}
 	}
 
-	return false, "", ""
+	return nil
 }
 
 // Enable 启用DPI
@@ -231,14 +236,10 @@ func (dpi *DPIEngine) Disable() {
 	dpi.mutex.Unlock()
 }
 
-// GetRules 获取所有规则
+// GetRules 获取规则
 func (dpi *DPIEngine) GetRules() []Rule {
 	dpi.mutex.RLock()
 	defer dpi.mutex.RUnlock()
 
-	// 返回副本
-	rulesCopy := make([]Rule, len(dpi.rules))
-	copy(rulesCopy, dpi.rules)
-
-	return rulesCopy
+	return dpi.rules
 }

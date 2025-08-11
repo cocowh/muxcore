@@ -3,6 +3,7 @@
 This package provides a flexible and configurable logging system for Go applications.
 
 ## Features
+
 - Multiple log levels (Trace, Debug, Info, Warn, Error, Fatal)
 - Multiple logger backends (Standard library, Zap)
 - Asynchronous logging support

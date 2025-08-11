@@ -1,12 +1,32 @@
+// Copyright (c) 2025 cocowh. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package handler
 
 import (
+	"net"
 	"sync"
 	"time"
 
-	common "github.com/cocowh/muxcore/core/shared"
 	"github.com/cocowh/muxcore/pkg/logger"
 )
+
+// ProtocolHandler 协议处理器接口
+type ProtocolHandler interface {
+	// Handle 处理连接
+	Handle(connID string, conn net.Conn, initialData []byte)
+}
+
+// BaseHandler 基础处理器实现
+type BaseHandler struct {
+	// 移除对pool的直接依赖以避免循环导入
+}
+
+// NewBaseHandler 创建基础处理器
+func NewBaseHandler() *BaseHandler {
+	return &BaseHandler{}
+}
 
 // ProcessorType 处理器类型
 const (
@@ -17,18 +37,123 @@ const (
 	ProcessorTypeStreaming = "streaming"
 )
 
+// ProcessorConfig 处理器配置
+type ProcessorConfig struct {
+	MaxConcurrency    int           `yaml:"max_concurrency"`
+	BufferSize        int           `yaml:"buffer_size"`
+	QueueSize         int           `yaml:"queue_size"`
+	Timeout           time.Duration `yaml:"timeout"`
+	RetryAttempts     int           `yaml:"retry_attempts"`
+	EnableMetrics     bool          `yaml:"enable_metrics"`
+	EnableCompression bool          `yaml:"enable_compression"`
+	EnablePipelining  bool          `yaml:"enable_pipelining"`
+	EnableBatching    bool          `yaml:"enable_batching"`
+	BatchSize         int           `yaml:"batch_size"`
+	BatchTimeout      time.Duration `yaml:"batch_timeout"`
+	EnableCaching     bool          `yaml:"enable_caching"`
+	CacheSize         int           `yaml:"cache_size"`
+	CacheTTL          time.Duration `yaml:"cache_ttl"`
+}
+
 // ProcessorMetrics 处理器指标
 type ProcessorMetrics struct {
-	RequestQueueTime  float64 // 请求排队时长百分位
-	MemoryPressure    float64 // 内存压力指数
-	ErrorRateSlope    float64 // 错误率斜率
-	ActiveConnections int     // 活跃连接数
+	RequestQueueTime    float64 // 请求排队时长百分位
+	MemoryPressure      float64 // 内存压力指数
+	ErrorRateSlope      float64 // 错误率斜率
+	ActiveConnections   int     // 活跃连接数
+	ProcessedRequests   int64   // 已处理请求数
+	AverageLatency      float64 // 平均延迟
+	Throughput          float64 // 吞吐量
+	ErrorRate           float64 // 错误率
+	CPUUsage            float64 // CPU使用率
+	MemoryUsage         float64 // 内存使用率
+	QueueDepth          int     // 队列深度
+	CacheHitRate        float64 // 缓存命中率
+	ProtocolParseTime   float64 // 协议解析时间
+}
+
+// OptimizedProtocolProcessor 优化的协议处理器
+type OptimizedProtocolProcessor struct {
+	*BaseHandler
+	config  *ProcessorConfig
+	metrics *ProcessorMetrics
+	mutex   sync.RWMutex
+}
+
+// NewOptimizedProtocolProcessor 创建优化的协议处理器
+func NewOptimizedProtocolProcessor(config *ProcessorConfig, manager *ProcessorManager, monitor interface{}, bufferPool interface{}) *OptimizedProtocolProcessor {
+	return &OptimizedProtocolProcessor{
+		BaseHandler: &BaseHandler{},
+		config:      config,
+		metrics:     &ProcessorMetrics{},
+	}
+}
+
+// Handle 处理连接
+func (p *OptimizedProtocolProcessor) Handle(connID string, conn net.Conn, initialData []byte) {
+	// TODO: 实现优化的协议处理逻辑
+	logger.Info("Processing connection", "connID", connID)
+}
+
+// GetMetrics 获取处理器指标
+func (p *OptimizedProtocolProcessor) GetMetrics() *ProcessorMetrics {
+	p.mutex.RLock()
+	defer p.mutex.RUnlock()
+	return p.metrics
+}
+
+// UpdateConfig 更新配置
+func (p *OptimizedProtocolProcessor) UpdateConfig(config *ProcessorConfig) {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	p.config = config
+}
+
+// Start 启动处理器
+func (p *OptimizedProtocolProcessor) Start() error {
+	logger.Info("Starting optimized protocol processor")
+	return nil
+}
+
+// Stop 停止处理器
+func (p *OptimizedProtocolProcessor) Stop() error {
+	logger.Info("Stopping optimized protocol processor")
+	return nil
+}
+
+// ProcessConnection 处理连接
+func (p *OptimizedProtocolProcessor) ProcessConnection(connID string, conn net.Conn, protocol string, data []byte) error {
+	p.mutex.Lock()
+	p.metrics.ProcessedRequests++
+	p.mutex.Unlock()
+	logger.Info("Processing connection", "connID", connID, "protocol", protocol)
+	return nil
+}
+
+// CacheStats 缓存统计
+type CacheStats struct {
+	HitRate     float64
+	MissRate    float64
+	TotalHits   int64
+	TotalMisses int64
+	CacheSize   int
+}
+
+// GetCacheStats 获取缓存统计
+func (p *OptimizedProtocolProcessor) GetCacheStats() map[string]interface{} {
+	return map[string]interface{}{
+		"cache_hit_rate":  p.metrics.CacheHitRate,
+		"cache_miss_rate": 1.0 - p.metrics.CacheHitRate,
+		"total_hits":      int64(p.metrics.CacheHitRate * float64(p.metrics.ProcessedRequests)),
+		"total_misses":    int64((1.0 - p.metrics.CacheHitRate) * float64(p.metrics.ProcessedRequests)),
+		"cache_size":      p.config.CacheSize,
+	}
 }
 
 // ProcessorGroup 处理器组
 type ProcessorGroup struct {
 	Type             string
-	Handlers         []common.ProtocolHandler
+	Handlers         []ProtocolHandler
 	Metrics          ProcessorMetrics
 	mutex            sync.RWMutex
 	concurrencyModel string
@@ -42,6 +167,7 @@ type ProcessorManager struct {
 	groups                map[string]*ProcessorGroup
 	mutex                 sync.RWMutex
 	loadBalancingStrategy LoadBalancingStrategy
+	config                *ProcessorConfig
 }
 
 // LoadBalancingStrategy 负载均衡策略
@@ -51,20 +177,35 @@ type LoadBalancingStrategy interface {
 
 // NewProcessorManager 创建处理器管理器
 func NewProcessorManager() *ProcessorManager {
-	manager := &ProcessorManager{
-		groups: make(map[string]*ProcessorGroup),
+	m := &ProcessorManager{
+		groups:                make(map[string]*ProcessorGroup),
+		loadBalancingStrategy: &ProtocolAwareStrategy{},
 	}
 
-	// 初始化默认负载均衡策略
-	manager.loadBalancingStrategy = &ProtocolAwareStrategy{}
+	// 初始化处理器组
+	m.initProcessorGroups()
+
+	// 启动指标收集
+	go m.metricsCollectorLoop()
+
+	return m
+}
+
+// NewProcessorManagerWithConfig 使用配置创建处理器管理器
+func NewProcessorManagerWithConfig(config *ProcessorConfig) *ProcessorManager {
+	m := &ProcessorManager{
+		groups:                make(map[string]*ProcessorGroup),
+		loadBalancingStrategy: &ProtocolAwareStrategy{},
+		config:                config,
+	}
 
 	// 初始化处理器组
-	manager.initProcessorGroups()
+	m.initProcessorGroups()
 
-	// 启动指标收集器
-	go manager.metricsCollectorLoop()
+	// 启动指标收集
+	go m.metricsCollectorLoop()
 
-	return manager
+	return m
 }
 
 // initProcessorGroups 初始化处理器组
@@ -72,7 +213,7 @@ func (m *ProcessorManager) initProcessorGroups() {
 	// HTTP处理器组
 	httpGroup := &ProcessorGroup{
 		Type:             ProcessorTypeHTTP,
-		Handlers:         make([]common.ProtocolHandler, 0),
+		Handlers:         make([]ProtocolHandler, 0),
 		concurrencyModel: "Goroutine-per-request",
 		memoryManagement: "对象池化",
 		timeoutControl:   "分层超时链",
@@ -83,7 +224,7 @@ func (m *ProcessorManager) initProcessorGroups() {
 	// WebSocket处理器组
 	wsGroup := &ProcessorGroup{
 		Type:             ProcessorTypeWebSocket,
-		Handlers:         make([]common.ProtocolHandler, 0),
+		Handlers:         make([]ProtocolHandler, 0),
 		concurrencyModel: "事件驱动Actor模型",
 		memoryManagement: "环形缓冲区",
 		timeoutControl:   "心跳保活机制",
@@ -94,7 +235,7 @@ func (m *ProcessorManager) initProcessorGroups() {
 	// gRPC处理器组
 	grpcGroup := &ProcessorGroup{
 		Type:             ProcessorTypeGRPC,
-		Handlers:         make([]common.ProtocolHandler, 0),
+		Handlers:         make([]ProtocolHandler, 0),
 		concurrencyModel: "线程池工作模式",
 		memoryManagement: "内存映射文件",
 		timeoutControl:   "看门狗定时器",
@@ -106,7 +247,7 @@ func (m *ProcessorManager) initProcessorGroups() {
 }
 
 // AddProcessor 添加处理器到组
-func (m *ProcessorManager) AddProcessor(protocol string, handler common.ProtocolHandler) {
+func (m *ProcessorManager) AddProcessor(protocol string, handler ProtocolHandler) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
@@ -124,7 +265,7 @@ func (m *ProcessorManager) AddProcessor(protocol string, handler common.Protocol
 }
 
 // SelectProcessor 选择处理器
-func (m *ProcessorManager) SelectProcessor(protocol string) common.ProtocolHandler {
+func (m *ProcessorManager) SelectProcessor(protocol string) ProtocolHandler {
 	m.mutex.RLock()
 	group, exists := m.groups[protocol]
 	m.mutex.RUnlock()
@@ -216,4 +357,28 @@ func (m *ProcessorManager) SetLoadBalancingStrategy(strategy LoadBalancingStrate
 	m.mutex.Unlock()
 
 	logger.Info("Updated load balancing strategy")
+}
+
+// RegisterHandler 注册协议处理器
+func (m *ProcessorManager) RegisterHandler(protocol string, handler ProtocolHandler) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+
+	// 获取或创建处理器组
+	group, exists := m.groups[protocol]
+	if !exists {
+		group = &ProcessorGroup{
+			Type:     protocol,
+			Handlers: make([]ProtocolHandler, 0),
+			Metrics:  ProcessorMetrics{},
+		}
+		m.groups[protocol] = group
+	}
+
+	// 添加处理器到组中
+	group.mutex.Lock()
+	group.Handlers = append(group.Handlers, handler)
+	group.mutex.Unlock()
+
+	logger.Infof("Registered %s protocol handler", protocol)
 }

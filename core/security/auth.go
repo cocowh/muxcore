@@ -1,8 +1,14 @@
+// Copyright (c) 2025 cocowh. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package security
 
 import (
 	"context"
 	"sync"
+
+	"github.com/cocowh/muxcore/pkg/errors"
 )
 
 // Permission 权限定义
@@ -93,17 +99,17 @@ func (am *AuthManager) AddUser(user *User) {
 	am.mutex.Unlock()
 }
 
-// RemoveUser 移除用户
-func (am *AuthManager) RemoveUser(userID string) bool {
+// RemoveUser 移除用户（返回错误以便统一错误处理和观测）
+func (am *AuthManager) RemoveUser(userID string) error {
 	am.mutex.Lock()
 	defer am.mutex.Unlock()
 
 	if _, exists := am.users[userID]; exists {
 		delete(am.users, userID)
-		return true
+		return nil
 	}
 
-	return false
+	return errors.New(errors.ErrCodeAuthUnknown, errors.CategoryAuth, errors.LevelWarn, "user not found")
 }
 
 // AddRole 添加角色
@@ -113,24 +119,24 @@ func (am *AuthManager) AddRole(role *Role) {
 	am.mutex.Unlock()
 }
 
-// RemoveRole 移除角色
-func (am *AuthManager) RemoveRole(roleID string) bool {
+// RemoveRole 移除角色（返回错误以便统一错误处理和观测）
+func (am *AuthManager) RemoveRole(roleID string) error {
 	am.mutex.Lock()
 	defer am.mutex.Unlock()
 
 	if _, exists := am.roles[roleID]; exists {
 		delete(am.roles, roleID)
-		return true
+		return nil
 	}
 
-	return false
+	return errors.New(errors.ErrCodeAuthUnknown, errors.CategoryAuth, errors.LevelWarn, "role not found")
 }
 
-// CheckPermission 检查权限
-func (am *AuthManager) CheckPermission(ctx context.Context, userID string, permission Permission) bool {
+// CheckPermission 检查权限（允许返回nil；拒绝返回错误）
+func (am *AuthManager) CheckPermission(ctx context.Context, userID string, permission Permission) error {
 	if !am.enabled {
 		// 如果未启用权限检查，默认允许
-		return true
+		return nil
 	}
 
 	am.mutex.RLock()
@@ -140,7 +146,10 @@ func (am *AuthManager) CheckPermission(ctx context.Context, userID string, permi
 	user, exists := am.users[userID]
 	if !exists {
 		// 用户不存在，应用默认策略
-		return am.defaultPolicy == "allow"
+		if am.defaultPolicy == "allow" {
+			return nil
+		}
+		return errors.New(errors.ErrCodeAuthUnauthorized, errors.CategoryAuth, errors.LevelWarn, "user not found or unauthorized")
 	}
 
 	// 检查用户角色的权限
@@ -150,21 +159,24 @@ func (am *AuthManager) CheckPermission(ctx context.Context, userID string, permi
 			continue
 		}
 
+		// 管理员角色拥有所有权限
+		if role.ID == "admin" {
+			return nil
+		}
+
 		// 检查角色是否有该权限
 		for _, p := range role.Permissions {
 			if p == permission {
-				return true
+				return nil
 			}
-		}
-
-		// 管理员角色拥有所有权限
-		if role.ID == "admin" {
-			return true
 		}
 	}
 
 	// 没有找到匹配的权限，应用默认策略
-	return am.defaultPolicy == "allow"
+	if am.defaultPolicy == "allow" {
+		return nil
+	}
+	return errors.New(errors.ErrCodeAuthForbidden, errors.CategoryAuth, errors.LevelWarn, "permission denied")
 }
 
 // GetUser 获取用户信息

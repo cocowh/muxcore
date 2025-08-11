@@ -1,9 +1,14 @@
+// Copyright (c) 2025 cocowh. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package bus
 
 import (
 	"fmt"
 	"sync"
 
+	"github.com/cocowh/muxcore/core/config"
 	"github.com/cocowh/muxcore/pkg/logger"
 	"golang.org/x/net/websocket"
 )
@@ -12,12 +17,21 @@ import (
 type MessageBus struct {
 	connections map[string]*websocket.Conn
 	mutex       sync.RWMutex
+	config      *config.MessageBusConfig
 }
 
 // NewMessageBus 创建消息总线
 func NewMessageBus() *MessageBus {
 	return &MessageBus{
 		connections: make(map[string]*websocket.Conn),
+	}
+}
+
+// NewMessageBusWithConfig 使用配置创建消息总线
+func NewMessageBusWithConfig(cfg *config.MessageBusConfig) *MessageBus {
+	return &MessageBus{
+		connections: make(map[string]*websocket.Conn),
+		config:      cfg,
 	}
 }
 

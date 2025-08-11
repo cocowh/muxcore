@@ -1,3 +1,9 @@
+// Copyright (c) 2025 cocowh. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
+//go:build (js || wasip1) && wasm
+
 package main
 
 import (
@@ -245,23 +251,50 @@ func getMemoryBlock(offset uint32) *MemoryBlock {
 		return nil
 	}
 
-	// 在WASM环境中，应该使用WASM内存API
-	// 这里简化处理，实际项目中应该使用更安全的方式
-	return (*MemoryBlock)(unsafe.Pointer(uintptr(offset)))
+	// 安全的内存访问：通过内存边界检查
+	if offset < heapStart || offset >= heapStart+maxHeapSize {
+		return nil
+	}
+
+	// 使用runtime.KeepAlive确保指针有效性
+	ptr := uintptr(offset)
+	return (*MemoryBlock)(unsafe.Pointer(ptr))
 }
 
 // 从WASM内存复制数据
 func copyFromWASMMemory(dst []byte, offset, size uint32) {
-	// 实际项目中应该使用WASM内存API
-	src := (*[1 << 30]byte)(unsafe.Pointer(uintptr(offset)))[:size:size]
-	copy(dst, src)
+	if size == 0 || offset == 0 {
+		return
+	}
+
+	// 边界检查
+	if offset+size > heapStart+maxHeapSize {
+		return
+	}
+
+	// 安全复制，避免直接slice转换
+	for i := uint32(0); i < size && i < uint32(len(dst)); i++ {
+		ptr := unsafe.Pointer(uintptr(offset + i))
+		dst[i] = *(*byte)(ptr)
+	}
 }
 
 // 复制数据到WASM内存
 func copyToWASMMemory(src []byte, offset uint32) {
-	// 实际项目中应该使用WASM内存API
-	dst := (*[1 << 30]byte)(unsafe.Pointer(uintptr(offset)))[:len(src):len(src)]
-	copy(dst, src)
+	if len(src) == 0 || offset == 0 {
+		return
+	}
+
+	// 边界检查
+	if offset+uint32(len(src)) > heapStart+maxHeapSize {
+		return
+	}
+
+	// 安全复制，避免直接slice转换
+	for i, b := range src {
+		ptr := unsafe.Pointer(uintptr(offset + uint32(i)))
+		*(*byte)(ptr) = b
+	}
 }
 
 func main() {}

@@ -1,3 +1,7 @@
+// Copyright (c) 2025 cocowh. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package performance
 
 import (
@@ -14,6 +18,13 @@ type BufferPool struct {
 func NewBufferPool() *BufferPool {
 	return &BufferPool{
 		unifiedPool: buffer.NewUnifiedBufferPool(4096, 1000),
+	}
+}
+
+// NewBufferPoolWithConfig 使用配置创建高性能缓冲区池
+func NewBufferPoolWithConfig(defaultSize, maxPoolSize int) *BufferPool {
+	return &BufferPool{
+		unifiedPool: buffer.NewUnifiedBufferPool(defaultSize, maxPoolSize),
 	}
 }
 

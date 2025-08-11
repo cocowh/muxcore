@@ -42,26 +42,27 @@ const (
 	CategoryBusiness   ErrorCategory = "business"   // 业务错误
 	CategoryWASM       ErrorCategory = "wasm"       // WASM错误
 	CategoryGovernance ErrorCategory = "governance" // 治理错误
+	CategorySecurity   ErrorCategory = "security"   // 安全错误
 )
 
 // 系统错误码 (1000-1999)
 const (
-	ErrCodeSystemUnknown        ErrorCode = 1000
-	ErrCodeSystemOutOfMemory    ErrorCode = 1001
-	ErrCodeSystemResourceLimit  ErrorCode = 1002
-	ErrCodeSystemInternalError  ErrorCode = 1003
-	ErrCodeSystemShutdown       ErrorCode = 1004
-	ErrCodeSystemPanic          ErrorCode = 1005
+	ErrCodeSystemUnknown       ErrorCode = 1000
+	ErrCodeSystemOutOfMemory   ErrorCode = 1001
+	ErrCodeSystemResourceLimit ErrorCode = 1002
+	ErrCodeSystemInternalError ErrorCode = 1003
+	ErrCodeSystemShutdown      ErrorCode = 1004
+	ErrCodeSystemPanic         ErrorCode = 1005
 )
 
 // 网络错误码 (2000-2999)
 const (
-	ErrCodeNetworkUnknown       ErrorCode = 2000
-	ErrCodeNetworkTimeout       ErrorCode = 2001
+	ErrCodeNetworkUnknown        ErrorCode = 2000
+	ErrCodeNetworkTimeout        ErrorCode = 2001
 	ErrCodeNetworkConnectionLost ErrorCode = 2002
-	ErrCodeNetworkRefused       ErrorCode = 2003
-	ErrCodeNetworkUnreachable   ErrorCode = 2004
-	ErrCodeNetworkTLSError      ErrorCode = 2005
+	ErrCodeNetworkRefused        ErrorCode = 2003
+	ErrCodeNetworkUnreachable    ErrorCode = 2004
+	ErrCodeNetworkTLSError       ErrorCode = 2005
 )
 
 // 协议错误码 (3000-3999)
@@ -75,45 +76,45 @@ const (
 
 // 缓冲区错误码 (4000-4999)
 const (
-	ErrCodeBufferUnknown    ErrorCode = 4000
-	ErrCodeBufferNotEnough  ErrorCode = 4001
-	ErrCodeBufferOverflow   ErrorCode = 4002
-	ErrCodeBufferCorrupted  ErrorCode = 4003
-	ErrCodeBufferPoolEmpty  ErrorCode = 4004
+	ErrCodeBufferUnknown   ErrorCode = 4000
+	ErrCodeBufferNotEnough ErrorCode = 4001
+	ErrCodeBufferOverflow  ErrorCode = 4002
+	ErrCodeBufferCorrupted ErrorCode = 4003
+	ErrCodeBufferPoolEmpty ErrorCode = 4004
 )
 
 // 配置错误码 (5000-5999)
 const (
-	ErrCodeConfigUnknown     ErrorCode = 5000
-	ErrCodeConfigNotFound    ErrorCode = 5001
-	ErrCodeConfigInvalid     ErrorCode = 5002
-	ErrCodeConfigParseError  ErrorCode = 5003
-	ErrCodeConfigValidation  ErrorCode = 5004
+	ErrCodeConfigUnknown    ErrorCode = 5000
+	ErrCodeConfigNotFound   ErrorCode = 5001
+	ErrCodeConfigInvalid    ErrorCode = 5002
+	ErrCodeConfigParseError ErrorCode = 5003
+	ErrCodeConfigValidation ErrorCode = 5004
 )
 
 // 认证错误码 (6000-6999)
 const (
-	ErrCodeAuthUnknown       ErrorCode = 6000
-	ErrCodeAuthUnauthorized  ErrorCode = 6001
-	ErrCodeAuthForbidden     ErrorCode = 6002
-	ErrCodeAuthTokenExpired  ErrorCode = 6003
-	ErrCodeAuthTokenInvalid  ErrorCode = 6004
+	ErrCodeAuthUnknown      ErrorCode = 6000
+	ErrCodeAuthUnauthorized ErrorCode = 6001
+	ErrCodeAuthForbidden    ErrorCode = 6002
+	ErrCodeAuthTokenExpired ErrorCode = 6003
+	ErrCodeAuthTokenInvalid ErrorCode = 6004
 )
 
 // 验证错误码 (7000-7999)
 const (
-	ErrCodeValidationUnknown    ErrorCode = 7000
-	ErrCodeValidationRequired   ErrorCode = 7001
-	ErrCodeValidationFormat     ErrorCode = 7002
-	ErrCodeValidationRange      ErrorCode = 7003
-	ErrCodeValidationDuplicate  ErrorCode = 7004
+	ErrCodeValidationUnknown   ErrorCode = 7000
+	ErrCodeValidationRequired  ErrorCode = 7001
+	ErrCodeValidationFormat    ErrorCode = 7002
+	ErrCodeValidationRange     ErrorCode = 7003
+	ErrCodeValidationDuplicate ErrorCode = 7004
 )
 
 // 业务错误码 (8000-8999)
 const (
-	ErrCodeBusinessUnknown      ErrorCode = 8000
-	ErrCodeBusinessLogicError   ErrorCode = 8001
-	ErrCodeBusinessStateError   ErrorCode = 8002
+	ErrCodeBusinessUnknown       ErrorCode = 8000
+	ErrCodeBusinessLogicError    ErrorCode = 8001
+	ErrCodeBusinessStateError    ErrorCode = 8002
 	ErrCodeBusinessRuleViolation ErrorCode = 8003
 )
 
@@ -128,7 +129,7 @@ const (
 
 // 治理错误码 (10000-10999)
 const (
-	ErrCodeGovernanceUnknown        ErrorCode = 10000
+	ErrCodeGovernanceUnknown         ErrorCode = 10000
 	ErrCodeGovernancePolicyViolation ErrorCode = 10001
 	ErrCodeGovernanceCircuitBreaker  ErrorCode = 10002
 	ErrCodeGovernanceRateLimit       ErrorCode = 10003
@@ -137,13 +138,13 @@ const (
 
 // MuxError 统一错误结构
 type MuxError struct {
-	Code      ErrorCode     `json:"code"`
-	Message   string        `json:"message"`
-	Category  ErrorCategory `json:"category"`
-	Level     ErrorLevel    `json:"level"`
-	Timestamp time.Time     `json:"timestamp"`
-	Stack     string        `json:"stack,omitempty"`
-	Cause     error         `json:"cause,omitempty"`
+	Code      ErrorCode              `json:"code"`
+	Message   string                 `json:"message"`
+	Category  ErrorCategory          `json:"category"`
+	Level     ErrorLevel             `json:"level"`
+	Timestamp time.Time              `json:"timestamp"`
+	Stack     string                 `json:"stack,omitempty"`
+	Cause     error                  `json:"cause,omitempty"`
 	Context   map[string]interface{} `json:"context,omitempty"`
 }
 
@@ -223,22 +224,25 @@ func getStack() string {
 	var buf [4096]byte
 	n := runtime.Stack(buf[:], false)
 	stack := string(buf[:n])
-	
+
 	// 过滤掉错误处理相关的栈帧
 	lines := strings.Split(stack, "\n")
 	filtered := make([]string, 0, len(lines))
-	skip := 0
-	
-	for i, line := range lines {
-		if strings.Contains(line, "pkg/errors") {
-			skip = i + 2 // 跳过当前行和下一行
+
+	for i := 0; i < len(lines); i++ {
+		// 过滤掉 runtime.Stack, getStack, New, Newf, Wrap, Wrapf 相关的堆栈
+		if strings.Contains(lines[i], "runtime.Stack") ||
+			strings.Contains(lines[i], "muxcore/pkg/errors.getStack") ||
+			(strings.Contains(lines[i], "muxcore/pkg/errors.New") && i+1 < len(lines)) ||
+			(strings.Contains(lines[i], "muxcore/pkg/errors.Newf") && i+1 < len(lines)) ||
+			(strings.Contains(lines[i], "muxcore/pkg/errors.Wrap") && i+1 < len(lines)) ||
+			(strings.Contains(lines[i], "muxcore/pkg/errors.Wrapf") && i+1 < len(lines)) {
+			i++ // 跳过下一行，因为每个函数调用在堆栈中占两行
 			continue
 		}
-		if i > skip {
-			filtered = append(filtered, line)
-		}
+		filtered = append(filtered, lines[i])
 	}
-	
+
 	return strings.Join(filtered, "\n")
 }
 
@@ -256,7 +260,7 @@ func GetErrorMessage(code ErrorCode) string {
 		return "Internal system error"
 	case ErrCodeSystemShutdown:
 		return "System is shutting down"
-	
+
 	// 网络错误
 	case ErrCodeNetworkUnknown:
 		return "Unknown network error"
@@ -270,7 +274,7 @@ func GetErrorMessage(code ErrorCode) string {
 		return "Network unreachable"
 	case ErrCodeNetworkTLSError:
 		return "TLS/SSL error"
-	
+
 	// 协议错误
 	case ErrCodeProtocolUnknown:
 		return "Unknown protocol error"
@@ -282,7 +286,7 @@ func GetErrorMessage(code ErrorCode) string {
 		return "Protocol version error"
 	case ErrCodeProtocolParseError:
 		return "Protocol parse error"
-	
+
 	// 缓冲区错误
 	case ErrCodeBufferUnknown:
 		return "Unknown buffer error"
@@ -294,7 +298,7 @@ func GetErrorMessage(code ErrorCode) string {
 		return "Buffer corrupted"
 	case ErrCodeBufferPoolEmpty:
 		return "Buffer pool empty"
-	
+
 	// 配置错误
 	case ErrCodeConfigUnknown:
 		return "Unknown config error"
@@ -306,7 +310,7 @@ func GetErrorMessage(code ErrorCode) string {
 		return "Config parse error"
 	case ErrCodeConfigValidation:
 		return "Config validation error"
-	
+
 	// 认证错误
 	case ErrCodeAuthUnknown:
 		return "Unknown auth error"
@@ -318,7 +322,7 @@ func GetErrorMessage(code ErrorCode) string {
 		return "Token expired"
 	case ErrCodeAuthTokenInvalid:
 		return "Invalid token"
-	
+
 	// 验证错误
 	case ErrCodeValidationUnknown:
 		return "Unknown validation error"
@@ -330,7 +334,7 @@ func GetErrorMessage(code ErrorCode) string {
 		return "Value out of range"
 	case ErrCodeValidationDuplicate:
 		return "Duplicate value"
-	
+
 	// 业务错误
 	case ErrCodeBusinessUnknown:
 		return "Unknown business error"
@@ -340,7 +344,7 @@ func GetErrorMessage(code ErrorCode) string {
 		return "Invalid business state"
 	case ErrCodeBusinessRuleViolation:
 		return "Business rule violation"
-	
+
 	// WASM错误
 	case ErrCodeWASMUnknown:
 		return "Unknown WASM error"
@@ -352,7 +356,7 @@ func GetErrorMessage(code ErrorCode) string {
 		return "WASM memory error"
 	case ErrCodeWASMFunctionNotFound:
 		return "WASM function not found"
-	
+
 	// 治理错误
 	case ErrCodeGovernanceUnknown:
 		return "Unknown governance error"
@@ -364,7 +368,7 @@ func GetErrorMessage(code ErrorCode) string {
 		return "Rate limit exceeded"
 	case ErrCodeGovernanceLoadBalancer:
 		return "Load balancer error"
-	
+
 	default:
 		return "Unknown error"
 	}

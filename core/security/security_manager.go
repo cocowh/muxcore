@@ -1,3 +1,7 @@
+// Copyright (c) 2025 cocowh. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package security
 
 import (
@@ -38,43 +42,43 @@ type SecurityEvent struct {
 
 // SecurityMetrics 安全指标
 type SecurityMetrics struct {
-	TotalConnections    int64
-	BlockedConnections  int64
-	TotalPackets        int64
-	BlockedPackets      int64
-	AuthAttempts        int64
-	FailedAuthAttempts  int64
-	SecurityEvents      int64
-	LastEventTime       time.Time
+	TotalConnections   int64
+	BlockedConnections int64
+	TotalPackets       int64
+	BlockedPackets     int64
+	AuthAttempts       int64
+	FailedAuthAttempts int64
+	SecurityEvents     int64
+	LastEventTime      time.Time
 }
 
 // SecurityManager 安全管理器
 // 整合纵深防御体系的各个组件
 type SecurityManager struct {
-	mutex          sync.RWMutex
-	dosProtector   *DOSProtector
-	synCookie      *SYNCookieProtector
-	dpiEngine      *DPIEngine
-	authManager    *AuthManager
-	config         *SecurityConfig
-	enabled        bool
-	securityLevel  SecurityLevel
-	metrics        *SecurityMetrics
-	events         chan *SecurityEvent
-	eventHandlers  []func(*SecurityEvent)
-	tlsConfig      *tls.Config
-	whitelist      map[string]bool
-	blacklist      map[string]bool
-	listMutex      sync.RWMutex
+	mutex         sync.RWMutex
+	dosProtector  *DOSProtector
+	synCookie     *SYNCookieProtector
+	dpiEngine     *DPIEngine
+	authManager   *AuthManager
+	config        *SecurityConfig
+	enabled       bool
+	securityLevel SecurityLevel
+	metrics       *SecurityMetrics
+	events        chan *SecurityEvent
+	eventHandlers []func(*SecurityEvent)
+	tlsConfig     *tls.Config
+	whitelist     map[string]bool
+	blacklist     map[string]bool
+	listMutex     sync.RWMutex
 }
 
 // SecurityConfig 安全配置
 type SecurityConfig struct {
 	// DoS防护配置
-	DOSThreshold        int
-	DOSWindowSize       time.Duration
-	DOSCleanupInterval  time.Duration
-	DOSBlockDuration    time.Duration
+	DOSThreshold       int
+	DOSWindowSize      time.Duration
+	DOSCleanupInterval time.Duration
+	DOSBlockDuration   time.Duration
 
 	// SYN Cookie配置
 	SYNCookieCleanupInterval time.Duration
@@ -86,17 +90,17 @@ type SecurityConfig struct {
 	DefaultAuthPolicy string
 
 	// 新增配置
-	SecurityLevel       SecurityLevel
-	EventBufferSize     int
-	MetricsInterval     time.Duration
-	TLSMinVersion       uint16
-	TLSCipherSuites     []uint16
-	EnableWhitelist     bool
-	EnableBlacklist     bool
-	MaxEventHandlers    int
-	AuditLogEnabled     bool
-	RateLimitEnabled    bool
-	GeoBlockingEnabled  bool
+	SecurityLevel      SecurityLevel
+	EventBufferSize    int
+	MetricsInterval    time.Duration
+	TLSMinVersion      uint16
+	TLSCipherSuites    []uint16
+	EnableWhitelist    bool
+	EnableBlacklist    bool
+	MaxEventHandlers   int
+	AuditLogEnabled    bool
+	RateLimitEnabled   bool
+	GeoBlockingEnabled bool
 }
 
 // NewSecurityManager 创建安全管理器实例
@@ -120,13 +124,14 @@ func NewSecurityManager(config SecurityConfig) *SecurityManager {
 		config.DOSBlockDuration,
 	)
 
-	synCookie := NewSYNCookieProtector(config.SYNCookieCleanupInterval)
+	// Use a simple fixed secret for demo; in production, derive from secure source
+	synCookie := NewSYNCookieProtector(0xC0DE1234)
 	dpiEngine := NewDPIEngine(config.DPIMaxPacketSize)
 	authManager := NewAuthManager(config.DefaultAuthPolicy)
 
 	// 配置TLS
 	tlsConfig := &tls.Config{
-		MinVersion: config.TLSMinVersion,
+		MinVersion:   config.TLSMinVersion,
 		CipherSuites: config.TLSCipherSuites,
 	}
 	if tlsConfig.MinVersion == 0 {
@@ -135,19 +140,19 @@ func NewSecurityManager(config SecurityConfig) *SecurityManager {
 
 	// 创建安全管理器
 	manager := &SecurityManager{
-		dosProtector:   dosProtector,
-		synCookie:      synCookie,
-		dpiEngine:      dpiEngine,
-		authManager:    authManager,
-		config:         &config,
-		enabled:        true,
-		securityLevel:  config.SecurityLevel,
-		metrics:        &SecurityMetrics{},
-		events:         make(chan *SecurityEvent, config.EventBufferSize),
-		eventHandlers:  make([]func(*SecurityEvent), 0, config.MaxEventHandlers),
-		tlsConfig:      tlsConfig,
-		whitelist:      make(map[string]bool),
-		blacklist:      make(map[string]bool),
+		dosProtector:  dosProtector,
+		synCookie:     synCookie,
+		dpiEngine:     dpiEngine,
+		authManager:   authManager,
+		config:        &config,
+		enabled:       true,
+		securityLevel: config.SecurityLevel,
+		metrics:       &SecurityMetrics{},
+		events:        make(chan *SecurityEvent, config.EventBufferSize),
+		eventHandlers: make([]func(*SecurityEvent), 0, config.MaxEventHandlers),
+		tlsConfig:     tlsConfig,
+		whitelist:     make(map[string]bool),
+		blacklist:     make(map[string]bool),
 	}
 
 	// 启动事件处理器
@@ -167,8 +172,9 @@ func (sm *SecurityManager) CheckConnectionSecurity(conn *net.TCPConn, ip, userAg
 	}
 
 	// 1. 检查DoS防护
-	if !sm.dosProtector.CheckFingerprint(ip, userAgent, protocol) {
-		logger.Warnf("Connection rejected by DoS protection: %s", conn.RemoteAddr().String())
+	if err := sm.dosProtector.CheckFingerprint(ip, userAgent, protocol); err != nil {
+		logger.Warnf("Connection rejected by DoS protection: %s, err=%v", conn.RemoteAddr().String(), err)
+		atomic.AddInt64(&sm.metrics.BlockedConnections, 1)
 		return false
 	}
 
@@ -185,10 +191,10 @@ func (sm *SecurityManager) CheckPacketSecurity(data []byte, protocol string) (bo
 	}
 
 	// 3. 深度包检测
-	blocked, action, ruleID := sm.dpiEngine.Detect(data, protocol)
-	if blocked {
-		logger.Warnf("Packet blocked by DPI: rule=%s, action=%s", ruleID, action)
-		return false, action
+	if dpiErr := sm.dpiEngine.Detect(data, protocol); dpiErr != nil {
+		logger.Warnf("Packet blocked by DPI: %v", dpiErr)
+		atomic.AddInt64(&sm.metrics.BlockedPackets, 1)
+		return false, "block"
 	}
 
 	return true, ""
@@ -201,7 +207,10 @@ func (sm *SecurityManager) CheckPermission(ctx context.Context, userID string, p
 	}
 
 	// 4. 应用级权限校验
-	return sm.authManager.CheckPermission(ctx, userID, permission)
+	if err := sm.authManager.CheckPermission(ctx, userID, permission); err != nil {
+		return false
+	}
+	return true
 }
 
 // Enable 启用安全管理器
@@ -268,13 +277,13 @@ func (sm *SecurityManager) eventProcessor() {
 		// 更新指标
 		atomic.AddInt64(&sm.metrics.SecurityEvents, 1)
 		sm.metrics.LastEventTime = event.Timestamp
-		
+
 		// 调用事件处理器
 		sm.mutex.RLock()
 		handlers := make([]func(*SecurityEvent), len(sm.eventHandlers))
 		copy(handlers, sm.eventHandlers)
 		sm.mutex.RUnlock()
-		
+
 		for _, handler := range handlers {
 			go func(h func(*SecurityEvent)) {
 				defer func() {
@@ -285,10 +294,10 @@ func (sm *SecurityManager) eventProcessor() {
 				h(event)
 			}(handler)
 		}
-		
+
 		// 记录审计日志
 		if sm.config.AuditLogEnabled {
-			logger.Infof("Security Event [%s]: %s from %s to %s - %s", 
+			logger.Infof("Security Event [%s]: %s from %s to %s - %s",
 				event.Type, event.Description, event.Source, event.Target, event.ID)
 		}
 	}
@@ -298,12 +307,9 @@ func (sm *SecurityManager) eventProcessor() {
 func (sm *SecurityManager) metricsCollector() {
 	ticker := time.NewTicker(sm.config.MetricsInterval)
 	defer ticker.Stop()
-	
-	for {
-		select {
-		case <-ticker.C:
-			sm.collectMetrics()
-		}
+
+	for range ticker.C {
+		sm.collectMetrics()
 	}
 }
 
@@ -320,11 +326,11 @@ func (sm *SecurityManager) collectMetrics() {
 func (sm *SecurityManager) AddEventHandler(handler func(*SecurityEvent)) error {
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
-	
+
 	if len(sm.eventHandlers) >= sm.config.MaxEventHandlers {
 		return fmt.Errorf("maximum event handlers reached: %d", sm.config.MaxEventHandlers)
 	}
-	
+
 	sm.eventHandlers = append(sm.eventHandlers, handler)
 	return nil
 }
@@ -333,7 +339,7 @@ func (sm *SecurityManager) AddEventHandler(handler func(*SecurityEvent)) error {
 func (sm *SecurityManager) RemoveEventHandler(handler func(*SecurityEvent)) {
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
-	
+
 	for i, h := range sm.eventHandlers {
 		if fmt.Sprintf("%p", h) == fmt.Sprintf("%p", handler) {
 			sm.eventHandlers = append(sm.eventHandlers[:i], sm.eventHandlers[i+1:]...)
@@ -354,7 +360,7 @@ func (sm *SecurityManager) PublishEvent(eventType, source, target, description s
 		Timestamp:   time.Now(),
 		Metadata:    metadata,
 	}
-	
+
 	select {
 	case sm.events <- event:
 	default:
@@ -387,7 +393,7 @@ func (sm *SecurityManager) GetMetrics() *SecurityMetrics {
 func (sm *SecurityManager) AddToWhitelist(ip string) {
 	sm.listMutex.Lock()
 	defer sm.listMutex.Unlock()
-	
+
 	sm.whitelist[ip] = true
 	logger.Infof("Added %s to whitelist", ip)
 }
@@ -396,7 +402,7 @@ func (sm *SecurityManager) AddToWhitelist(ip string) {
 func (sm *SecurityManager) RemoveFromWhitelist(ip string) {
 	sm.listMutex.Lock()
 	defer sm.listMutex.Unlock()
-	
+
 	delete(sm.whitelist, ip)
 	logger.Infof("Removed %s from whitelist", ip)
 }
@@ -405,7 +411,7 @@ func (sm *SecurityManager) RemoveFromWhitelist(ip string) {
 func (sm *SecurityManager) AddToBlacklist(ip string) {
 	sm.listMutex.Lock()
 	defer sm.listMutex.Unlock()
-	
+
 	sm.blacklist[ip] = true
 	logger.Infof("Added %s to blacklist", ip)
 }
@@ -414,7 +420,7 @@ func (sm *SecurityManager) AddToBlacklist(ip string) {
 func (sm *SecurityManager) RemoveFromBlacklist(ip string) {
 	sm.listMutex.Lock()
 	defer sm.listMutex.Unlock()
-	
+
 	delete(sm.blacklist, ip)
 	logger.Infof("Removed %s from blacklist", ip)
 }
@@ -423,7 +429,7 @@ func (sm *SecurityManager) RemoveFromBlacklist(ip string) {
 func (sm *SecurityManager) IsWhitelisted(ip string) bool {
 	sm.listMutex.RLock()
 	defer sm.listMutex.RUnlock()
-	
+
 	return sm.whitelist[ip]
 }
 
@@ -431,7 +437,7 @@ func (sm *SecurityManager) IsWhitelisted(ip string) bool {
 func (sm *SecurityManager) IsBlacklisted(ip string) bool {
 	sm.listMutex.RLock()
 	defer sm.listMutex.RUnlock()
-	
+
 	return sm.blacklist[ip]
 }
 
@@ -439,10 +445,10 @@ func (sm *SecurityManager) IsBlacklisted(ip string) bool {
 func (sm *SecurityManager) UpdateSecurityLevel(level SecurityLevel) {
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
-	
+
 	sm.securityLevel = level
 	sm.config.SecurityLevel = level
-	
+
 	// 根据安全级别调整各组件配置
 	switch level {
 	case SecurityLevelLow:
@@ -454,9 +460,9 @@ func (sm *SecurityManager) UpdateSecurityLevel(level SecurityLevel) {
 	case SecurityLevelCritical:
 		sm.config.DOSThreshold = sm.config.DOSThreshold / 4
 	}
-	
+
 	logger.Infof("Security level updated to: %d", level)
-	sm.PublishEvent("security.level.changed", "system", "security_manager", 
+	sm.PublishEvent("security.level.changed", "system", "security_manager",
 		fmt.Sprintf("Security level changed to %d", level), SecurityLevelMedium, nil)
 }
 
@@ -473,7 +479,7 @@ func (sm *SecurityManager) ValidateSecurityPolicy(policy map[string]interface{})
 	if policy == nil {
 		return fmt.Errorf("security policy cannot be nil")
 	}
-	
+
 	// 验证必需字段
 	requiredFields := []string{"dos_protection", "dpi_rules", "auth_policy"}
 	for _, field := range requiredFields {
@@ -481,7 +487,7 @@ func (sm *SecurityManager) ValidateSecurityPolicy(policy map[string]interface{})
 			return fmt.Errorf("missing required field: %s", field)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -490,10 +496,10 @@ func (sm *SecurityManager) ApplySecurityPolicy(policy map[string]interface{}) er
 	if err := sm.ValidateSecurityPolicy(policy); err != nil {
 		return fmt.Errorf("invalid security policy: %w", err)
 	}
-	
+
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
-	
+
 	// 应用DoS防护策略
 	if dosConfig, ok := policy["dos_protection"].(map[string]interface{}); ok {
 		if threshold, exists := dosConfig["threshold"]; exists {
@@ -502,7 +508,7 @@ func (sm *SecurityManager) ApplySecurityPolicy(policy map[string]interface{}) er
 			}
 		}
 	}
-	
+
 	// 应用DPI规则
 	if dpiRules, ok := policy["dpi_rules"].([]interface{}); ok {
 		for _, rule := range dpiRules {
@@ -512,17 +518,17 @@ func (sm *SecurityManager) ApplySecurityPolicy(policy map[string]interface{}) er
 			}
 		}
 	}
-	
+
 	// 应用认证策略
 	if authPolicy, ok := policy["auth_policy"].(string); ok {
 		sm.config.DefaultAuthPolicy = authPolicy
 		// 注意：AuthManager当前没有UpdatePolicy方法，这里只更新配置
 	}
-	
+
 	logger.Infof("Security policy applied successfully")
-	sm.PublishEvent("security.policy.applied", "system", "security_manager", 
+	sm.PublishEvent("security.policy.applied", "system", "security_manager",
 		"Security policy updated", SecurityLevelMedium, policy)
-	
+
 	return nil
 }
 

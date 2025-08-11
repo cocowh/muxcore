@@ -8,7 +8,7 @@
 router/
 ├── router_optimization_example.go     # 路由器优化演示
 ├── protocol_processor_demo.go         # 协议处理器优化演示
-├── router_optimizer.go                # 路由器优化实现
+├── enhanced_router.go                 # 增强路由器实现
 ├── protocol_processor_optimizer.go    # 协议处理器优化实现
 └── README.md                          # 本文档
 ```

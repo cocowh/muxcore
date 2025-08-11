@@ -5,6 +5,8 @@
 package logger
 
 import (
+	"strings"
+
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -36,6 +38,26 @@ func (level Level) String() string {
 		return "fatal"
 	default:
 		return "unknown"
+	}
+}
+
+// ParseLevel 解析日志级别字符串
+func ParseLevel(levelStr string) Level {
+	switch strings.ToLower(levelStr) {
+	case "trace":
+		return TraceLevel
+	case "debug":
+		return DebugLevel
+	case "info":
+		return InfoLevel
+	case "warn", "warning":
+		return WarnLevel
+	case "error":
+		return ErrorLevel
+	case "fatal":
+		return FatalLevel
+	default:
+		return InfoLevel
 	}
 }
 

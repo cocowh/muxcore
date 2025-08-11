@@ -1,3 +1,7 @@
+// Copyright (c) 2025 cocowh. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package reliability
 
 import (
@@ -51,20 +55,53 @@ type ReliabilityManager struct {
 	degradationLevel DegradationLevel
 	mutex            sync.RWMutex
 	pool             *pool.ConnectionPool
+	// 配置化阈值和周期
+	monitorInterval       time.Duration
+	thresholdSimplified   float64
+	thresholdCriticalOnly float64
+	thresholdMaintainOnly float64
 }
 
 // NewReliabilityManager 创建可靠性管理器
 func NewReliabilityManager(pool *pool.ConnectionPool) *ReliabilityManager {
 	manager := &ReliabilityManager{
-		circuitBreakers:  make(map[string]*CircuitBreaker),
-		degradationLevel: DegradationLevelNormal,
-		pool:             pool,
+		circuitBreakers:       make(map[string]*CircuitBreaker),
+		degradationLevel:      DegradationLevelNormal,
+		pool:                  pool,
+		monitorInterval:       10 * time.Second,
+		thresholdSimplified:   0.05,
+		thresholdCriticalOnly: 0.15,
+		thresholdMaintainOnly: 0.30,
 	}
 
 	// 启动降级监控
 	go manager.degradationMonitorLoop()
 
 	logger.Info("Initialized reliability manager")
+	return manager
+}
+
+// NewReliabilityManagerWithConfig 创建带配置的可靠性管理器
+func NewReliabilityManagerWithConfig(pool *pool.ConnectionPool, enabled bool, intervalSec int, simplified, criticalOnly, maintainOnly float64) *ReliabilityManager {
+	if intervalSec <= 0 {
+		intervalSec = 10
+	}
+	manager := &ReliabilityManager{
+		circuitBreakers:       make(map[string]*CircuitBreaker),
+		degradationLevel:      DegradationLevelNormal,
+		pool:                  pool,
+		monitorInterval:       time.Duration(intervalSec) * time.Second,
+		thresholdSimplified:   simplified,
+		thresholdCriticalOnly: criticalOnly,
+		thresholdMaintainOnly: maintainOnly,
+	}
+
+	if enabled {
+		go manager.degradationMonitorLoop()
+		logger.Info("Initialized reliability manager with config and degradation monitor enabled")
+	} else {
+		logger.Info("Initialized reliability manager with config, degradation monitor disabled")
+	}
 	return manager
 }
 
@@ -226,7 +263,7 @@ func (m *ReliabilityManager) GetDegradationLevel() DegradationLevel {
 
 // degradationMonitorLoop 降级监控循环
 func (m *ReliabilityManager) degradationMonitorLoop() {
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(m.monitorInterval)
 	defer ticker.Stop()
 	for range ticker.C {
 		m.evaluateDegradationLevel()
@@ -246,11 +283,11 @@ func (m *ReliabilityManager) evaluateDegradationLevel() {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
 
-	if errorRate > 0.3 {
+	if errorRate > m.thresholdMaintainOnly {
 		m.degradationLevel = DegradationLevelMaintainOnly
-	} else if errorRate > 0.15 {
+	} else if errorRate > m.thresholdCriticalOnly {
 		m.degradationLevel = DegradationLevelCriticalOnly
-	} else if errorRate > 0.05 {
+	} else if errorRate > m.thresholdSimplified {
 		m.degradationLevel = DegradationLevelSimplified
 	} else {
 		m.degradationLevel = DegradationLevelNormal

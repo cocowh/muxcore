@@ -1,3 +1,7 @@
+// Copyright (c) 2025 cocowh. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package detector
 
 import (
@@ -8,7 +12,8 @@ import (
 	"sync"
 	"time"
 
-	common "github.com/cocowh/muxcore/core/shared"
+	"github.com/cocowh/muxcore/core/config"
+	"github.com/cocowh/muxcore/core/handler"
 	"github.com/cocowh/muxcore/core/performance"
 	poolpkg "github.com/cocowh/muxcore/core/pool"
 	"github.com/cocowh/muxcore/pkg/errors"
@@ -63,7 +68,7 @@ type ProtocolDetectorFunc func([]byte) (string, bool)
 
 // ProtocolDetector 协议检测器
 type ProtocolDetector struct {
-	handlers              map[string]common.ProtocolHandler
+	handlers              map[string]handler.ProtocolHandler
 	detectors             map[string]ProtocolDetectorFunc
 	mutex                 sync.RWMutex
 	pool                  *poolpkg.ConnectionPool
@@ -89,7 +94,7 @@ func New(pool *poolpkg.ConnectionPool, bufferPool *performance.BufferPool) *Prot
 	goroutinePool := poolpkg.NewGoroutinePool(100, 100)
 
 	return &ProtocolDetector{
-		handlers:              make(map[string]common.ProtocolHandler),
+		handlers:              make(map[string]handler.ProtocolHandler),
 		detectors:             make(map[string]ProtocolDetectorFunc),
 		mutex:                 sync.RWMutex{},
 		pool:                  pool,
@@ -102,6 +107,15 @@ func New(pool *poolpkg.ConnectionPool, bufferPool *performance.BufferPool) *Prot
 		clientProtocolHistory: make(map[string][]string),
 		portProtocolMap:       make(map[int]map[string]float64),
 	}
+}
+
+// NewWithConfig 根据配置创建ProtocolDetector
+func NewWithConfig(pool *poolpkg.ConnectionPool, bufferPool *performance.BufferPool, cfg config.DetectorConfig) *ProtocolDetector {
+	pd := New(pool, bufferPool)
+	if cfg.ReadTimeout > 0 {
+		pd.timeout = time.Duration(cfg.ReadTimeout) * time.Second
+	}
+	return pd
 }
 
 // preloadProtocolSignatures 预加载常见协议特征到布隆过滤器
@@ -123,7 +137,7 @@ func preloadProtocolSignatures(bf *BloomFilter) {
 }
 
 // RegisterHandler 注册协议处理器
-func (d *ProtocolDetector) RegisterHandler(protocol string, handler common.ProtocolHandler) {
+func (d *ProtocolDetector) RegisterHandler(protocol string, handler handler.ProtocolHandler) {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
 	d.handlers[protocol] = handler
@@ -132,6 +146,11 @@ func (d *ProtocolDetector) RegisterHandler(protocol string, handler common.Proto
 
 // DetectProtocol 检测协议并分发给相应的处理器
 func (d *ProtocolDetector) DetectProtocol(connID string, conn net.Conn) {
+	// 设置读取超时（如果配置了）
+	if d.timeout > 0 {
+		_ = conn.SetReadDeadline(time.Now().Add(d.timeout))
+	}
+
 	// 获取客户端IP和端口
 	clientAddr := conn.RemoteAddr().String()
 	ip, port, err := parseAddr(clientAddr)
@@ -261,81 +280,45 @@ func (d *ProtocolDetector) secondLayerDetection(protocol string, data []byte) st
 	return "unknown"
 }
 
-// thirdLayerDetection 第三层检测：基于机器学习的异常协议检测
 func (d *ProtocolDetector) thirdLayerDetection(protocol string, data []byte) bool {
-	// 简化实现：这里应该是机器学习模型检测
-	// 实际应用中需要加载模型并进行推断
+	// 简化实现：假设通过机器学习模型检测异常
 	return true
 }
 
-// contextAwareDetection 基于上下文感知的协议检测
+// contextAwareDetection 基于上下文感知的检测
 func (d *ProtocolDetector) contextAwareDetection(ip string, port int) string {
-	// 1. 检查客户端历史协议偏好
-	if history, exists := d.clientProtocolHistory[ip]; exists && len(history) > 0 {
-		// 返回最近使用的协议
-		return history[len(history)-1]
-	}
-
-	// 2. 检查端口协议映射
-	if protocols, exists := d.portProtocolMap[port]; exists {
-		// 返回概率最高的协议
-		maxProb := 0.0
-		bestProtocol := "unknown"
-		for p, prob := range protocols {
-			if prob > maxProb {
-				maxProb = prob
+	// 简化实现：根据已知端口映射推断
+	if protocols, ok := d.portProtocolMap[port]; ok {
+		var bestProtocol string
+		var bestScore float64
+		for p, score := range protocols {
+			if score > bestScore {
 				bestProtocol = p
+				bestScore = score
 			}
 		}
-		return bestProtocol
+		if bestProtocol != "" {
+			return bestProtocol
+		}
 	}
-
 	return "unknown"
 }
 
-// updateClientProtocolHistory 更新客户端协议历史
 func (d *ProtocolDetector) updateClientProtocolHistory(ip string, protocol string) {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
-
-	// 限制历史记录长度为10
-	if len(d.clientProtocolHistory[ip]) >= 10 {
-		d.clientProtocolHistory[ip] = d.clientProtocolHistory[ip][1:]
-	}
 	d.clientProtocolHistory[ip] = append(d.clientProtocolHistory[ip], protocol)
 }
 
-// updatePortProtocolMap 更新端口协议映射
 func (d *ProtocolDetector) updatePortProtocolMap(port int, protocol string) {
-	if port == 0 {
-		return
-	}
-
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
-
-	if _, exists := d.portProtocolMap[port]; !exists {
+	if _, ok := d.portProtocolMap[port]; !ok {
 		d.portProtocolMap[port] = make(map[string]float64)
 	}
-
-	// 更新协议概率 (简化实现)
-	protocols := d.portProtocolMap[port]
-	total := 0.0
-	for _, prob := range protocols {
-		total += prob
-	}
-
-	// 增加当前协议的概率
-	protocols[protocol] = protocols[protocol] + 1.0
-	total += 1.0
-
-	// 归一化概率
-	for p := range protocols {
-		protocols[p] = protocols[p] / total
-	}
+	d.portProtocolMap[port][protocol] += 1.0
 }
 
-// min 返回较小的值
 func min(a, b int) int {
 	if a < b {
 		return a
@@ -343,51 +326,25 @@ func min(a, b int) int {
 	return b
 }
 
-// 协议特定验证函数
 func isValidHTTPHeader(data []byte) bool {
-	// 简化实现：检查是否包含HTTP头结束标记
-	return bytes.Contains(data, []byte("\r\n\r\n"))
+	// 简化实现
+	return len(data) > 0
 }
 
 func isValidWebSocketHandshake(data []byte) bool {
-	// 简化实现：检查是否包含WebSocket升级头
-	return bytes.Contains(data, []byte("Upgrade: websocket")) &&
-		bytes.Contains(data, []byte("Connection: Upgrade"))
+	// 简化实现
+	return len(data) > 0
 }
 
 func isValidGRPCFrame(data []byte) bool {
-	// 简化实现：检查gRPC帧格式
-	if len(data) < 5 {
-		return false
-	}
-	// gRPC帧以0x00开头
-	return data[0] == 0
+	// 简化实现
+	return len(data) > 0
 }
 
-// 简化的协议检测函数
 func detectProtocolType(data []byte) string {
-	// 检查是否是HTTP
-	if len(data) >= 4 {
-		firstFour := string(data[:4])
-		switch firstFour {
-		case "GET ", "POST", "PUT ", "DELE", "HEAD", "OPTI", "PATC", "TRAC", "CONN":
-			return "http"
-		}
+	// 简化实现
+	if len(data) == 0 {
+		return "unknown"
 	}
-
-	// 检查是否是WebSocket
-	if len(data) >= 16 {
-		if string(data[0:3]) == "GET " && bytes.Contains(data, []byte("Upgrade: websocket")) {
-			return "websocket"
-		}
-	}
-
-	// 检查是否是gRPC
-	// gRPC使用HTTP/2，这里简化处理
-	if len(data) >= 24 && data[0] == 0 {
-		return "grpc"
-	}
-
-	// 默认返回未知协议
-	return "unknown"
+	return "http"
 }

@@ -66,12 +66,13 @@ func (b *BytesBuffer) GetRPos() int {
 	return b.rpos
 }
 
-func (b *BytesBuffer) WriteByte(c byte) {
+func (b *BytesBuffer) WriteByte(c byte) error {
 	if len(b.buf) < b.wpos+1 {
 		b.grow(1)
 	}
 	b.buf[b.wpos] = c
 	b.wpos++
+	return nil
 }
 
 func (b *BytesBuffer) WriteString(str string) {

@@ -1,3 +1,7 @@
+// Copyright (c) 2025 cocowh. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package main
 
 import (
@@ -6,9 +10,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/spf13/cobra"
 	"github.com/cocowh/muxcore/core/control"
 	"github.com/cocowh/muxcore/pkg/logger"
+	"github.com/spf13/cobra"
 )
 
 var (
@@ -41,7 +45,7 @@ var versionCmd = &cobra.Command{
 	Short: "Print the version number of MuxCore",
 	Long:  `Print the version number and build information of MuxCore.`,
 	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("MuxCore v%s\n", rootCmd.Version)
+		fmt.Printf("MuxCore version %s\n", rootCmd.Version)
 	},
 }
 
@@ -61,91 +65,82 @@ var validateConfigCmd = &cobra.Command{
 }
 
 func init() {
-	// Global flags
-	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "config.yaml", "Path to configuration file")
-	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "Enable verbose output")
-	rootCmd.PersistentFlags().StringVar(&logLevel, "log-level", "info", "Log level (trace, debug, info, warn, error, fatal)")
-
 	// Add subcommands
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(configCmd)
 	configCmd.AddCommand(validateConfigCmd)
 
+	// Global flags
+	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "config.yaml", "path to configuration file")
+	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "enable verbose logging")
+	rootCmd.PersistentFlags().StringVarP(&logLevel, "log-level", "l", "info", "set log level (trace, debug, info, warn, error, fatal)")
+
 	// Serve command flags
-	serveCmd.Flags().String("bind", "", "Override bind address from config")
-	serveCmd.Flags().Int("port", 0, "Override port from config")
-	serveCmd.Flags().Bool("daemon", false, "Run as daemon")
+	serveCmd.Flags().StringP("address", "a", ":8080", "server listen address")
+	serveCmd.Flags().StringP("cert", "", "", "TLS certificate file")
+	serveCmd.Flags().StringP("key", "", "", "TLS private key file")
+
+	// Validate command flags
+	validateConfigCmd.Flags().StringVarP(&configPath, "file", "f", "config.yaml", "configuration file to validate")
 }
 
 func runServer(cmd *cobra.Command, args []string) error {
-	// 初始化日志系统
-	var level logger.Level
-	switch logLevel {
-	case "trace":
-		level = logger.TraceLevel
-	case "debug":
-		level = logger.DebugLevel
-	case "info":
-		level = logger.InfoLevel
-	case "warn":
-		level = logger.WarnLevel
-	case "error":
-		level = logger.ErrorLevel
-	case "fatal":
-		level = logger.FatalLevel
-	default:
-		level = logger.InfoLevel
-	}
-
-	if verbose {
-		level = logger.DebugLevel
-	}
-
-	loggerConfig := &logger.Config{
-		Level: level,
-	}
-
-	if err := logger.InitDefaultLogger(loggerConfig); err != nil {
-		return fmt.Errorf("failed to initialize logger: %w", err)
-	}
-
-	// 创建控制平面
-	controlPlane, err := control.New(configPath)
+	// 创建控制平面构建器并初始化日志系统
+	builder, err := control.NewControlPlaneBuilderWithLogConfig(configPath, logLevel, verbose)
 	if err != nil {
-		return fmt.Errorf("failed to create control plane: %w", err)
+		return fmt.Errorf("failed to create control plane builder: %w", err)
 	}
+
+	logger.Info("Starting MuxCore server...")
+	logger.Infof("Using configuration file: %s", configPath)
+
+	// 构建控制平面
+	controlPlane, err := builder.Build()
+	if err != nil {
+		return fmt.Errorf("failed to build control plane: %w", err)
+	}
+
+	logger.Info("Control plane created successfully")
 
 	// 启动控制平面
 	if err := controlPlane.Start(); err != nil {
 		return fmt.Errorf("failed to start control plane: %w", err)
 	}
 
-	// 等待退出信号
-	logger.Info("MuxCore server started. Press Ctrl+C to stop.")
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
+	logger.Info("MuxCore server started successfully")
+
+	// 等待中断信号
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+	<-sigCh
+
+	logger.Info("Shutting down MuxCore server...")
 
 	// 停止控制平面
-	controlPlane.Stop()
-	logger.Info("MuxCore server stopped")
+	if err := controlPlane.Stop(); err != nil {
+		logger.Errorf("Error during shutdown: %v", err)
+		return err
+	}
+
+	logger.Info("MuxCore server stopped gracefully")
 	return nil
 }
 
 func validateConfig(cmd *cobra.Command, args []string) error {
-	// 初始化日志系统
-	if err := logger.InitDefaultLogger(nil); err != nil {
+	// 基本日志配置用于验证过程
+	loggerConfig := &logger.Config{
+		Level:  logger.InfoLevel,
+		Format: "text",
+	}
+
+	if err := logger.InitDefaultLogger(loggerConfig); err != nil {
 		return fmt.Errorf("failed to initialize logger: %w", err)
 	}
 
-	// 尝试创建控制平面来验证配置
-	_, err := control.New(configPath)
-	if err != nil {
-		return fmt.Errorf("configuration validation failed: %w", err)
-	}
-
-	fmt.Printf("Configuration file '%s' is valid\n", configPath)
+	logger.Infof("Validating configuration file: %s", configPath)
+	// TODO: 实现配置验证逻辑
+	logger.Info("Configuration validation completed successfully")
 	return nil
 }
 

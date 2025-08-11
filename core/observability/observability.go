@@ -1,8 +1,13 @@
+// Copyright (c) 2025 cocowh. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package observability
 
 import (
 	"sync"
 
+	"github.com/cocowh/muxcore/core/config"
 	"github.com/cocowh/muxcore/pkg/logger"
 )
 
@@ -10,12 +15,21 @@ import (
 type Metrics struct {
 	metrics map[string]float64
 	mutex   sync.RWMutex
+	config  *config.ObservabilityConfig
 }
 
 // NewMetrics 创建指标收集器
 func NewMetrics() *Metrics {
 	return &Metrics{
 		metrics: make(map[string]float64),
+	}
+}
+
+// NewMetricsWithConfig 使用配置创建指标收集器
+func NewMetricsWithConfig(cfg *config.ObservabilityConfig) *Metrics {
+	return &Metrics{
+		metrics: make(map[string]float64),
+		config:  cfg,
 	}
 }
 
@@ -48,11 +62,19 @@ func (m *Metrics) GetAll() map[string]float64 {
 // Tracing 追踪系统
 type Tracing struct {
 	// 这里可以集成OpenTelemetry等追踪系统
+	config *config.ObservabilityConfig
 }
 
 // NewTracing 创建追踪系统
 func NewTracing() *Tracing {
 	return &Tracing{}
+}
+
+// NewTracingWithConfig 使用配置创建追踪系统
+func NewTracingWithConfig(cfg *config.ObservabilityConfig) *Tracing {
+	return &Tracing{
+		config: cfg,
+	}
 }
 
 // StartSpan 开始一个追踪 span
@@ -71,6 +93,7 @@ func (t *Tracing) EndSpan(name string) {
 type Observability struct {
 	metrics *Metrics
 	tracing *Tracing
+	config  *config.ObservabilityConfig
 }
 
 // New 创建可观测性组件
@@ -78,6 +101,15 @@ func New() *Observability {
 	return &Observability{
 		metrics: NewMetrics(),
 		tracing: NewTracing(),
+	}
+}
+
+// NewWithConfig 使用配置创建可观测性组件
+func NewWithConfig(cfg *config.ObservabilityConfig) *Observability {
+	return &Observability{
+		metrics: NewMetricsWithConfig(cfg),
+		tracing: NewTracingWithConfig(cfg),
+		config:  cfg,
 	}
 }
 

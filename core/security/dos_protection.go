@@ -1,9 +1,14 @@
+// Copyright (c) 2025 cocowh. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package security
 
 import (
 	"sync"
 	"time"
 
+	"github.com/cocowh/muxcore/pkg/errors"
 	"github.com/cocowh/muxcore/pkg/logger"
 )
 
@@ -15,6 +20,7 @@ type Fingerprint struct {
 	UserAgent string
 	Protocol  string
 	Timestamp time.Time
+	Count     int
 }
 
 // DOSProtector  DoS防护管理器
@@ -49,9 +55,9 @@ func NewDOSProtector(threshold int, windowSize, cleanupInterval, blockDuration t
 }
 
 // CheckFingerprint 检查指纹是否可疑
-func (dp *DOSProtector) CheckFingerprint(ip, userAgent, protocol string) bool {
+func (dp *DOSProtector) CheckFingerprint(ip, userAgent, protocol string) error {
 	if !dp.enabled {
-		return true
+		return nil
 	}
 
 	// 检查是否被阻止
@@ -62,49 +68,47 @@ func (dp *DOSProtector) CheckFingerprint(ip, userAgent, protocol string) bool {
 			dp.mutex.Unlock()
 		} else {
 			logger.Warnf("Blocked IP detected: %s", ip)
-			return false
+			return errors.New(errors.ErrCodeGovernanceRateLimit, errors.CategorySecurity, errors.LevelWarn, "Rate limit exceeded")
 		}
 	}
 
 	// 生成指纹ID
 	fingerprintID := generateFingerprintID(ip, userAgent, protocol)
 
-	dp.mutex.RLock()
-	fingerprint, exists := dp.fingerprints[fingerprintID]
-	dp.mutex.RUnlock()
+	dp.mutex.Lock()
+	defer dp.mutex.Unlock()
 
 	now := time.Now()
+	fingerprint, exists := dp.fingerprints[fingerprintID]
 
 	if !exists {
 		// 新指纹
-		dp.mutex.Lock()
 		dp.fingerprints[fingerprintID] = &Fingerprint{
 			IP:        ip,
 			UserAgent: userAgent,
 			Protocol:  protocol,
 			Timestamp: now,
+			Count:     1,
 		}
-		dp.mutex.Unlock()
-		return true
+		return nil
 	}
 
-	// 检查是否在时间窗口内超过阈值
+	// 检查是否在时间窗口内
 	if now.Sub(fingerprint.Timestamp) < dp.windowSize {
-		// 在时间窗口内，增加计数
-		// 实际实现中这里应该有一个计数器
-		// 为简化，我们假设计数器超过阈值就返回false
-		// 这里应该有一个真实的计数逻辑
-		logger.Warnf("Potential DoS attack detected from %s", ip)
-		dp.blockIP(ip)
-		return false
+		fingerprint.Count++
+		if fingerprint.Count > dp.threshold {
+			logger.Warnf("Potential DoS attack detected from %s, count: %d", ip, fingerprint.Count)
+			// avoid nested locking: we already hold dp.mutex here
+			dp.blockedIPs[ip] = time.Now()
+			return errors.New(errors.ErrCodeGovernanceRateLimit, errors.CategorySecurity, errors.LevelWarn, "Potential DoS attack")
+		}
+	} else {
+		// 重置计数器
+		fingerprint.Timestamp = now
+		fingerprint.Count = 1
 	}
 
-	// 更新时间戳
-	dp.mutex.Lock()
-	fingerprint.Timestamp = now
-	dp.mutex.Unlock()
-
-	return true
+	return nil
 }
 
 // 生成指纹ID
@@ -132,22 +136,27 @@ func (dp *DOSProtector) cleanupExpiredFingerprints() {
 	for {
 		time.Sleep(dp.cleanupInterval)
 
-		dp.mutex.Lock()
 		now := time.Now()
 
-		// 清理过期指纹
-		for id, fingerprint := range dp.fingerprints {
-			if now.Sub(fingerprint.Timestamp) > dp.windowSize {
-				delete(dp.fingerprints, id)
-			}
-		}
+		dp.mutex.Lock()
 
-		// 清理过期阻止
-		for ip, blockedTime := range dp.blockedIPs {
-			if now.Sub(blockedTime) > dp.blockDuration {
-				delete(dp.blockedIPs, ip)
+		// 清理过期的指纹
+		newFingerprints := make(map[string]*Fingerprint)
+		for id, fingerprint := range dp.fingerprints {
+			if now.Sub(fingerprint.Timestamp) <= dp.windowSize {
+				newFingerprints[id] = fingerprint
 			}
 		}
+		dp.fingerprints = newFingerprints
+
+		// 清理过期的阻止
+		newBlockedIPs := make(map[string]time.Time)
+		for ip, blockedTime := range dp.blockedIPs {
+			if now.Sub(blockedTime) <= dp.blockDuration {
+				newBlockedIPs[ip] = blockedTime
+			}
+		}
+		dp.blockedIPs = newBlockedIPs
 
 		dp.mutex.Unlock()
 	}

@@ -6,6 +6,9 @@ server:
 
 monitor:
   interval: 10  # 秒
+  metrics:
+    enabled: true
+    address: ":9090"
 
 logger:
   level: "info"

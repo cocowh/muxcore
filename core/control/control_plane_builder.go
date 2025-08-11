@@ -1,222 +1,236 @@
+// Copyright (c) 2025 cocowh. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package control
 
 import (
-	"context"
+	"fmt"
 	"time"
 
 	"github.com/cocowh/muxcore/core/bus"
 	"github.com/cocowh/muxcore/core/config"
 	"github.com/cocowh/muxcore/core/detector"
-	handlerpkg "github.com/cocowh/muxcore/core/handler"
-	grpcpkg "github.com/cocowh/muxcore/core/grpc"
-	httppkg "github.com/cocowh/muxcore/core/http"
-	"github.com/cocowh/muxcore/core/listener"
+	"github.com/cocowh/muxcore/core/handler"
 	"github.com/cocowh/muxcore/core/observability"
-	pkgPool "github.com/cocowh/muxcore/core/pool"
 	"github.com/cocowh/muxcore/core/performance"
+	"github.com/cocowh/muxcore/core/pool"
+	"github.com/cocowh/muxcore/core/protocols/grpc"
+	"github.com/cocowh/muxcore/core/protocols/http"
+	"github.com/cocowh/muxcore/core/protocols/websocket"
 	"github.com/cocowh/muxcore/core/reliability"
 	"github.com/cocowh/muxcore/core/router"
-	ws "github.com/cocowh/muxcore/core/websocket"
+	"github.com/cocowh/muxcore/pkg/logger"
 )
 
 // ControlPlaneBuilder 控制平面构建器
 type ControlPlaneBuilder struct {
-	configManager  *config.ConfigManager
-	ctx            context.Context
-	cancel         context.CancelFunc
-	pool           *pkgPool.ConnectionPool
-	goroutinePool  *pkgPool.GoroutinePool
-	bufferPool     *performance.BufferPool
-	detector       *detector.ProtocolDetector
-	observability  *observability.Observability
-	processorManager *handlerpkg.ProcessorManager
-	messageBus     *bus.MessageBus
-	reliabilityManager *reliability.ReliabilityManager
-	listener       *listener.Listener
+	configManager *config.ConfigManager
 }
 
 // NewControlPlaneBuilder 创建控制平面构建器
 func NewControlPlaneBuilder(configPath string) (*ControlPlaneBuilder, error) {
-	// 创建配置管理器
 	configManager, err := config.NewConfigManager(configPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to create config manager: %w", err)
 	}
-
-	ctx, cancel := context.WithCancel(context.Background())
 
 	return &ControlPlaneBuilder{
 		configManager: configManager,
-		ctx:           ctx,
-		cancel:        cancel,
-	},
-	nil
+	}, nil
 }
 
-// WithPool 设置连接池
-func (b *ControlPlaneBuilder) WithPool(pool *pkgPool.ConnectionPool) *ControlPlaneBuilder {
-	b.pool = pool
-	return b
+// NewControlPlaneBuilderWithLogConfig 创建控制平面构建器并初始化日志
+func NewControlPlaneBuilderWithLogConfig(configPath, logLevel string, verbose bool) (*ControlPlaneBuilder, error) {
+	configManager, err := config.NewConfigManager(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create config manager: %w", err)
+	}
+
+	// 初始化日志系统，支持命令行参数覆盖
+	if err := initializeLoggerWithOverrides(configManager, logLevel, verbose); err != nil {
+		return nil, fmt.Errorf("failed to initialize logger: %w", err)
+	}
+
+	return &ControlPlaneBuilder{
+		configManager: configManager,
+	}, nil
 }
 
-// WithGoroutinePool 设置goroutine池
-func (b *ControlPlaneBuilder) WithGoroutinePool(goroutinePool *pkgPool.GoroutinePool) *ControlPlaneBuilder {
-	b.goroutinePool = goroutinePool
-	return b
+// initializeLogger 初始化日志系统
+func initializeLogger(configManager *config.ConfigManager) error {
+	loggerConfig := configManager.GetLoggerConfig()
+
+	// 创建logger配置
+	config := &logger.Config{
+		LogDir:          loggerConfig.LogDir,
+		BaseName:        loggerConfig.BaseName,
+		Format:          loggerConfig.Format,
+		Level:           logger.ParseLevel(loggerConfig.Level),
+		Compress:        true,
+		TimeFormat:      "2006-01-02 15:04:05",
+		MaxSizeMB:       loggerConfig.MaxSizeMB,
+		MaxBackups:      loggerConfig.MaxBackups,
+		MaxAgeDays:      loggerConfig.MaxAgeDays,
+		EnableWarnFile:  loggerConfig.EnableWarnFile,
+		EnableErrorFile: loggerConfig.EnableErrorFile,
+	}
+
+	// 使用配置初始化日志系统
+	return logger.InitDefaultLogger(config)
 }
 
-// WithBufferPool 设置缓冲区池
-func (b *ControlPlaneBuilder) WithBufferPool(bufferPool *performance.BufferPool) *ControlPlaneBuilder {
-	b.bufferPool = bufferPool
-	return b
-}
+// initializeLoggerWithOverrides 初始化日志系统，支持命令行参数覆盖
+func initializeLoggerWithOverrides(configManager *config.ConfigManager, logLevel string, verbose bool) error {
+	loggerConfig := configManager.GetLoggerConfig()
 
-// WithDetector 设置协议检测器
-func (b *ControlPlaneBuilder) WithDetector(detector *detector.ProtocolDetector) *ControlPlaneBuilder {
-	b.detector = detector
-	return b
-}
+	// 确定最终的日志级别
+	finalLevel := loggerConfig.Level
+	if logLevel != "" {
+		finalLevel = logLevel
+	}
+	if verbose {
+		finalLevel = "debug"
+	}
 
-// WithObservability 设置可观测性组件
-func (b *ControlPlaneBuilder) WithObservability(observability *observability.Observability) *ControlPlaneBuilder {
-	b.observability = observability
-	return b
-}
+	// 创建logger配置
+	config := &logger.Config{
+		LogDir:          loggerConfig.LogDir,
+		BaseName:        loggerConfig.BaseName,
+		Format:          loggerConfig.Format,
+		Level:           logger.ParseLevel(finalLevel),
+		Compress:        true,
+		TimeFormat:      "2006-01-02 15:04:05",
+		MaxSizeMB:       loggerConfig.MaxSizeMB,
+		MaxBackups:      loggerConfig.MaxBackups,
+		MaxAgeDays:      loggerConfig.MaxAgeDays,
+		EnableWarnFile:  loggerConfig.EnableWarnFile,
+		EnableErrorFile: loggerConfig.EnableErrorFile,
+	}
 
-// WithProcessorManager 设置处理器管理器
-func (b *ControlPlaneBuilder) WithProcessorManager(processorManager *handlerpkg.ProcessorManager) *ControlPlaneBuilder {
-	b.processorManager = processorManager
-	return b
-}
-
-// WithMessageBus 设置消息总线
-func (b *ControlPlaneBuilder) WithMessageBus(messageBus *bus.MessageBus) *ControlPlaneBuilder {
-	b.messageBus = messageBus
-	return b
-}
-
-// WithReliabilityManager 设置可靠性管理器
-func (b *ControlPlaneBuilder) WithReliabilityManager(reliabilityManager *reliability.ReliabilityManager) *ControlPlaneBuilder {
-	b.reliabilityManager = reliabilityManager
-	return b
-}
-
-// WithListener 设置监听器
-func (b *ControlPlaneBuilder) WithListener(listener *listener.Listener) *ControlPlaneBuilder {
-	b.listener = listener
-	return b
+	// 使用配置初始化日志系统
+	return logger.InitDefaultLogger(config)
 }
 
 // Build 构建控制平面
 func (b *ControlPlaneBuilder) Build() (*ControlPlane, error) {
-	// 如果没有设置组件，则创建默认组件
-	if b.pool == nil {
-		b.pool = pkgPool.New()
+	// 获取配置
+	poolConfig := b.configManager.GetPoolConfig()
+	observabilityConfig := b.configManager.GetObservabilityConfig()
+
+	// 创建协程池
+	goroutinePool := pool.NewGoroutinePool(poolConfig.Goroutine.Workers, poolConfig.Goroutine.QueueSize)
+
+	// 创建缓冲池
+	bufferPool := performance.NewBufferPool()
+
+	// 创建连接池
+	connectionPool := pool.New()
+
+	// 创建协议检测器
+	detector := detector.New(connectionPool, bufferPool)
+
+	// 创建可观测性组件
+	optimizedObservabilityConfig := &observability.OptimizedObservabilityConfig{
+		MetricsEnabled:      true,
+		MetricsInterval:     10 * time.Second,
+		MetricsRetention:    24 * time.Hour,
+		MetricsBufferSize:   10000,
+		TracingEnabled:      observabilityConfig.Enabled,
+		SamplingRate:        observabilityConfig.SamplingRate,
+		MaxSpansPerTrace:    1000,
+		TraceTimeout:        30 * time.Second,
+		LoggingEnabled:      true,
+		LogLevel:            "info",
+		LogBufferSize:       5000,
+		LogFlushInterval:    5 * time.Second,
+		PerformanceEnabled:  true,
+		ResourceMonitoring:  true,
+		HealthCheckEnabled:  true,
+		HealthCheckInterval: 30 * time.Second,
+		AlertingEnabled:     true,
+		AlertThresholds: map[string]float64{
+			"cpu_usage":     80.0,
+			"memory_usage":  85.0,
+			"error_rate":    5.0,
+			"response_time": 1000.0,
+		},
+		AlertCooldown: 5 * time.Minute,
 	}
 
-	if b.goroutinePool == nil {
-		// 初始化goroutine池，设置工作协程数为CPU核心数的2倍
-		b.goroutinePool = pkgPool.NewGoroutinePool(0, 100) // 0表示使用默认配置，100是队列大小
+	// 创建可观测性组件
+	observability := observability.NewOptimizedObservability(optimizedObservabilityConfig)
+
+	// 创建处理器管理器
+	processorManager := handler.NewProcessorManager()
+
+	// 创建消息总线
+	messageBus := bus.NewMessageBus()
+
+	// 创建可靠性管理器
+	reliabilityManager := reliability.NewReliabilityManager(connectionPool)
+
+	// 创建路由器
+	routerConfig := &router.OptimizedRouterConfig{
+		MaxConcurrency:      1000,
+		RequestTimeout:      30 * time.Second,
+		EnableLoadBalancing: true,
+		EnableCaching:       true,
+		EnableFailover:      true,
+		EnableMetrics:       true,
+		HealthCheckInterval: 10 * time.Second,
+		CacheSize:           10000,
+		CacheTTL:            5 * time.Minute,
+		LoadBalanceStrategy: router.RoundRobin,
+		FailoverThreshold:   3,
+		MetricsInterval:     30 * time.Second,
 	}
+	optimizedRouter := router.NewOptimizedRouter(routerConfig)
 
-	if b.bufferPool == nil {
-		b.bufferPool = performance.NewBufferPool()
-	}
-
-	if b.detector == nil {
-		b.detector = detector.New(b.pool, b.bufferPool)
-	}
-
-	if b.observability == nil {
-		b.observability = observability.New()
-	}
-
-	if b.processorManager == nil {
-		b.processorManager = handlerpkg.NewProcessorManager()
-	}
-
-	if b.messageBus == nil {
-		b.messageBus = bus.NewMessageBus()
-	}
-
-	if b.reliabilityManager == nil {
-		b.reliabilityManager = reliability.NewReliabilityManager(b.pool)
-	}
-
-	// 配置熔断三维模型
-	httpCircuitBreaker := reliability.NewCircuitBreaker(
-		"http",
-		0.1,  // 连接失败率阈值
-		100,  // 协议失败阈值
-		50,   // 服务失败阈值
-		30*time.Second,
-	)
-	b.reliabilityManager.AddCircuitBreaker(httpCircuitBreaker)
-
-	grpcCircuitBreaker := reliability.NewCircuitBreaker(
-		"grpc",
-		0.15, // 连接失败率阈值
-		80,   // 协议失败阈值
-		40,   // 服务失败阈值
-		30*time.Second,
-	)
-	b.reliabilityManager.AddCircuitBreaker(grpcCircuitBreaker)
-
-	wsCircuitBreaker := reliability.NewCircuitBreaker(
-		"websocket",
-		0.2,  // 连接失败率阈值
-		50,   // 协议失败阈值
-		30,   // 服务失败阈值
-		30*time.Second,
-	)
-	b.reliabilityManager.AddCircuitBreaker(wsCircuitBreaker)
-
-	// 从配置中获取地址
-	serverConfig := b.configManager.GetServerConfig()
-	addr := serverConfig.Address
-	if addr == "" {
-		addr = ":8080"
-	}
-
-	if b.listener == nil {
-		b.listener = listener.New(addr, b.detector, b.pool, b.goroutinePool, b.bufferPool)
-	}
-
-	// 创建并注册处理器
-	// 创建radix树路由
-	radixRouter := router.NewRadixTree()
-	// 添加一些示例路由
-	radixRouter.Insert("/", []string{"root"})
-	radixRouter.Insert("/health", []string{"health"})
-
-	// HTTP处理器
-	httpHandler := httppkg.NewHTTPHandler(b.pool, radixRouter)
-	b.processorManager.AddProcessor(handlerpkg.ProcessorTypeHTTP, httpHandler)
-	b.detector.RegisterHandler("http", httpHandler)
-
-	// WebSocket处理器
-	wsHandler := ws.NewWebSocketHandler(b.pool, b.messageBus)
-	b.processorManager.AddProcessor(handlerpkg.ProcessorTypeWebSocket, wsHandler)
-	b.detector.RegisterHandler("websocket", wsHandler)
-
-	// gRPC处理器
-	grpcHandler := grpcpkg.NewGRPCHandler(b.pool)
-	b.processorManager.AddProcessor(handlerpkg.ProcessorTypeGRPC, grpcHandler)
-	b.detector.RegisterHandler("grpc", grpcHandler)
-
-	return &ControlPlane{
+	// 创建控制平面
+	controlPlane := &ControlPlane{
 		configManager:      b.configManager,
-		listener:           b.listener,
-		detector:           b.detector,
-		pool:               b.pool,
-		goroutinePool:      b.goroutinePool,
-		bufferPool:         b.bufferPool,
-		observability:      b.observability,
-		processorManager:   b.processorManager,
-		messageBus:         b.messageBus,
-		reliabilityManager: b.reliabilityManager,
-		ctx:                b.ctx,
-		cancel:             b.cancel,
-	},
-	nil
+		goroutinePool:      goroutinePool,
+		bufferPool:         bufferPool,
+		connectionPool:     connectionPool,
+		detector:           detector,
+		observability:      observability,
+		processorManager:   processorManager,
+		messageBus:         messageBus,
+		reliabilityManager: reliabilityManager,
+		optimizedRouter:    optimizedRouter,
+	}
+
+	// 注册协议处理器
+	if err := b.registerProtocolHandlers(controlPlane); err != nil {
+		return nil, fmt.Errorf("failed to register protocol handlers: %w", err)
+	}
+
+	return controlPlane, nil
+}
+
+// registerProtocolHandlers 注册协议处理器
+func (b *ControlPlaneBuilder) registerProtocolHandlers(cp *ControlPlane) error {
+	// 获取协议配置
+	protocolConfig := b.configManager.GetProtocolConfig()
+
+	// 创建HTTP处理器
+	if protocolConfig.HTTP.Enabled {
+		httpHandler := http.NewHTTPHandler(cp.connectionPool, cp.optimizedRouter.GetRadixTree())
+		cp.processorManager.RegisterHandler("http", httpHandler)
+	}
+
+	// 创建gRPC处理器
+	if protocolConfig.GRPC.Enabled {
+		grpcHandler := grpc.NewGRPCHandler(cp.connectionPool)
+		cp.processorManager.RegisterHandler("grpc", grpcHandler)
+	}
+
+	// 创建WebSocket处理器
+	if protocolConfig.WebSocket.Enabled {
+		websocketHandler := websocket.NewWebSocketHandler(cp.connectionPool, cp.messageBus)
+		cp.processorManager.RegisterHandler("websocket", websocketHandler)
+	}
+
+	return nil
 }
