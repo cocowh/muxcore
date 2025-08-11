@@ -168,6 +168,8 @@ type ProcessorManager struct {
 	mutex                 sync.RWMutex
 	loadBalancingStrategy LoadBalancingStrategy
 	config                *ProcessorConfig
+	// 每协议的轮询计数器，避免基于时间的取模偏斜
+	rrIndex               map[string]uint64
 }
 
 // LoadBalancingStrategy 负载均衡策略
@@ -180,6 +182,7 @@ func NewProcessorManager() *ProcessorManager {
 	m := &ProcessorManager{
 		groups:                make(map[string]*ProcessorGroup),
 		loadBalancingStrategy: &ProtocolAwareStrategy{},
+		rrIndex:               make(map[string]uint64),
 	}
 
 	// 初始化处理器组
@@ -197,6 +200,7 @@ func NewProcessorManagerWithConfig(config *ProcessorConfig) *ProcessorManager {
 		groups:                make(map[string]*ProcessorGroup),
 		loadBalancingStrategy: &ProtocolAwareStrategy{},
 		config:                config,
+		rrIndex:               make(map[string]uint64),
 	}
 
 	// 初始化处理器组
@@ -281,7 +285,7 @@ func (m *ProcessorManager) SelectProcessor(protocol string) ProtocolHandler {
 		selectedGroup = group
 	}
 
-	// 从组中选择一个处理器 (简化实现)
+	// 从组中选择一个处理器 (改为线程安全的每协议轮询)
 	selectedGroup.mutex.RLock()
 	defer selectedGroup.mutex.RUnlock()
 
@@ -289,8 +293,13 @@ func (m *ProcessorManager) SelectProcessor(protocol string) ProtocolHandler {
 		return nil
 	}
 
-	// 简单轮询选择
-	index := int(time.Now().UnixNano()) % len(selectedGroup.Handlers)
+	// 增加协议对应的轮询计数器并取模
+	m.mutex.Lock()
+	cur := m.rrIndex[protocol]
+	m.rrIndex[protocol] = cur + 1
+	m.mutex.Unlock()
+
+	index := int(cur % uint64(len(selectedGroup.Handlers)))
 	return selectedGroup.Handlers[index]
 }
 

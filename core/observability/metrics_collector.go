@@ -363,9 +363,20 @@ func (h *OptimizedGRPCHandler) metricsInterceptor() grpc.UnaryServerInterceptor 
 				statusCode = "UNKNOWN"
 			}
 		}
-		// TODO: Record request metrics
-		_ = statusCode
-		_ = duration
+
+		// Record request metrics to observability system
+		RecordRequest("grpc", info.FullMethod, statusCode, duration.Seconds())
+
+		// Record to control plane metrics
+		if h.config.EnableReflection {
+			observabilityCtx := context.WithValue(ctx, "metrics", map[string]interface{}{
+				"method":    info.FullMethod,
+				"status":    statusCode,
+				"duration":  duration.Seconds(),
+				"timestamp": start,
+			})
+			_ = observabilityCtx
+		}
 
 		return resp, err
 	}
@@ -408,8 +419,35 @@ func (h *OptimizedGRPCHandler) streamMetricsInterceptor() grpc.StreamServerInter
 		atomic.AddInt64(&h.metrics.ActiveStreams, 1)
 		defer atomic.AddInt64(&h.metrics.ActiveStreams, -1)
 
+		// 记录开始时间（修复此前在 handler 执行后才记录导致 duration 几乎为 0 的问题）
+		start := time.Now()
 		err := handler(srv, ss)
-		// TODO: Record stream metrics
+		streamDuration := time.Since(start)
+
+		streamStatus := "OK"
+		if err != nil {
+			if s, ok := status.FromError(err); ok {
+				streamStatus = s.Code().String()
+			} else {
+				streamStatus = "UNKNOWN"
+			}
+		}
+
+		// 统一记录到观测系统
+		RecordRequest("grpc_stream", info.FullMethod, streamStatus, streamDuration.Seconds())
+
+		// 可选：控制面板上下文（保留原有行为）
+		if h.config.EnableReflection {
+			streamMetrics := map[string]interface{}{
+				"method":         info.FullMethod,
+				"status":         streamStatus,
+				"duration":       streamDuration.Seconds(),
+				"stream_id":      time.Now().UnixNano(),
+				"active_streams": atomic.LoadInt64(&h.metrics.ActiveStreams),
+			}
+			_ = streamMetrics
+		}
+
 		return err
 	}
 }

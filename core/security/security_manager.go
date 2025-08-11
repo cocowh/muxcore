@@ -70,6 +70,10 @@ type SecurityManager struct {
 	whitelist     map[string]bool
 	blacklist     map[string]bool
 	listMutex     sync.RWMutex
+	ctx           context.Context
+	cancel        context.CancelFunc
+	closed        int32 // 使用原子操作
+	wg            sync.WaitGroup
 }
 
 // SecurityConfig 安全配置
@@ -138,6 +142,9 @@ func NewSecurityManager(config SecurityConfig) *SecurityManager {
 		tlsConfig.MinVersion = tls.VersionTLS12
 	}
 
+	// 创建上下文
+	ctx, cancel := context.WithCancel(context.Background())
+
 	// 创建安全管理器
 	manager := &SecurityManager{
 		dosProtector:  dosProtector,
@@ -153,6 +160,8 @@ func NewSecurityManager(config SecurityConfig) *SecurityManager {
 		tlsConfig:     tlsConfig,
 		whitelist:     make(map[string]bool),
 		blacklist:     make(map[string]bool),
+		ctx:           ctx,
+		cancel:        cancel,
 	}
 
 	// 启动事件处理器
@@ -273,43 +282,62 @@ func (sm *SecurityManager) GetSYNCookieProtector() *SYNCookieProtector {
 
 // eventProcessor 事件处理器
 func (sm *SecurityManager) eventProcessor() {
-	for event := range sm.events {
-		// 更新指标
-		atomic.AddInt64(&sm.metrics.SecurityEvents, 1)
-		sm.metrics.LastEventTime = event.Timestamp
+	sm.wg.Add(1)
+	defer sm.wg.Done()
 
-		// 调用事件处理器
-		sm.mutex.RLock()
-		handlers := make([]func(*SecurityEvent), len(sm.eventHandlers))
-		copy(handlers, sm.eventHandlers)
-		sm.mutex.RUnlock()
+	for {
+		select {
+		case event, ok := <-sm.events:
+			if !ok {
+				return
+			}
+			// 更新指标
+			atomic.AddInt64(&sm.metrics.SecurityEvents, 1)
+			sm.metrics.LastEventTime = event.Timestamp
 
-		for _, handler := range handlers {
-			go func(h func(*SecurityEvent)) {
-				defer func() {
-					if r := recover(); r != nil {
-						logger.Errorf("Security event handler panic: %v", r)
-					}
-				}()
-				h(event)
-			}(handler)
-		}
+			// 调用事件处理器
+			sm.mutex.RLock()
+			handlers := make([]func(*SecurityEvent), len(sm.eventHandlers))
+			copy(handlers, sm.eventHandlers)
+			sm.mutex.RUnlock()
 
-		// 记录审计日志
-		if sm.config.AuditLogEnabled {
-			logger.Infof("Security Event [%s]: %s from %s to %s - %s",
-				event.Type, event.Description, event.Source, event.Target, event.ID)
+			for _, handler := range handlers {
+				go func(h func(*SecurityEvent)) {
+					defer func() {
+						if r := recover(); r != nil {
+							logger.Errorf("Security event handler panic: %v", r)
+						}
+					}()
+					h(event)
+				}(handler)
+			}
+
+			// 记录审计日志
+			if sm.config.AuditLogEnabled {
+				logger.Infof("Security Event [%s]: %s from %s to %s - %s",
+					event.Type, event.Description, event.Source, event.Target, event.ID)
+			}
+		case <-sm.ctx.Done():
+			return
 		}
 	}
 }
 
 // metricsCollector 指标收集器
 func (sm *SecurityManager) metricsCollector() {
+	sm.wg.Add(1)
+	defer sm.wg.Done()
+
 	ticker := time.NewTicker(sm.config.MetricsInterval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		sm.collectMetrics()
+	for {
+		select {
+		case <-ticker.C:
+			sm.collectMetrics()
+		case <-sm.ctx.Done():
+			return
+		}
 	}
 }
 
@@ -350,6 +378,11 @@ func (sm *SecurityManager) RemoveEventHandler(handler func(*SecurityEvent)) {
 
 // PublishEvent 发布安全事件
 func (sm *SecurityManager) PublishEvent(eventType, source, target, description string, level SecurityLevel, metadata map[string]interface{}) {
+	// 检查是否已关闭
+	if atomic.LoadInt32(&sm.closed) == 1 {
+		return
+	}
+
 	event := &SecurityEvent{
 		ID:          sm.generateEventID(),
 		Type:        eventType,
@@ -363,6 +396,8 @@ func (sm *SecurityManager) PublishEvent(eventType, source, target, description s
 
 	select {
 	case sm.events <- event:
+	case <-sm.ctx.Done():
+		// 已关闭，直接返回
 	default:
 		logger.Warnf("Security event buffer full, dropping event: %s", event.ID)
 	}
@@ -549,7 +584,33 @@ func (sm *SecurityManager) UpdateTLSConfig(config *tls.Config) {
 
 // Close 关闭安全管理器
 func (sm *SecurityManager) Close() error {
+	// 设置关闭标志
+	if !atomic.CompareAndSwapInt32(&sm.closed, 0, 1) {
+		return nil // 已经关闭
+	}
+
 	sm.Disable()
+
+	// 取消上下文，通知所有 goroutine 退出
+	sm.cancel()
+
+	// 等待所有 goroutine 退出
+	done := make(chan struct{})
+	go func() {
+		sm.wg.Wait()
+		close(done)
+	}()
+
+	// 设置超时等待
+	select {
+	case <-done:
+		// 正常退出
+	case <-time.After(5 * time.Second):
+		logger.Warnf("Security manager close timeout")
+	}
+
+	// 关闭事件通道
 	close(sm.events)
+
 	return nil
 }
