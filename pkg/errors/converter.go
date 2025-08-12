@@ -5,6 +5,7 @@
 package errors
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"syscall"
@@ -32,18 +33,19 @@ func (ec *ErrorConverter) Convert(err error) *MuxError {
 	if err == nil {
 		return nil
 	}
-	
+
 	// 如果已经是MuxError，直接返回
-	if muxErr, ok := err.(*MuxError); ok {
+	var muxErr *MuxError
+	if errors.As(err, &muxErr) {
 		return muxErr
 	}
-	
+
 	// 尝试使用注册的转换器
 	errorType := fmt.Sprintf("%T", err)
 	if converter, exists := ec.converters[errorType]; exists {
 		return converter(err)
 	}
-	
+
 	// 使用内置转换逻辑
 	return ec.convertBuiltin(err)
 }
@@ -51,7 +53,8 @@ func (ec *ErrorConverter) Convert(err error) *MuxError {
 // convertBuiltin 内置错误转换逻辑
 func (ec *ErrorConverter) convertBuiltin(err error) *MuxError {
 	// 网络错误
-	if netErr, ok := err.(net.Error); ok {
+	var netErr net.Error
+	if errors.As(err, &netErr) {
 		if netErr.Timeout() {
 			return New(ErrCodeNetworkTimeout, CategoryNetwork, LevelError, "Network timeout")
 		}
@@ -59,23 +62,24 @@ func (ec *ErrorConverter) convertBuiltin(err error) *MuxError {
 			return New(ErrCodeNetworkConnectionLost, CategoryNetwork, LevelWarn, "Temporary network error")
 		}
 	}
-	
+
 	// 系统调用错误
-	if errno, ok := err.(syscall.Errno); ok {
-		switch errno {
-		case syscall.ECONNREFUSED:
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		switch {
+		case errors.Is(errno, syscall.ECONNREFUSED):
 			return New(ErrCodeNetworkRefused, CategoryNetwork, LevelError, "Connection refused")
-		case syscall.ENETUNREACH:
+		case errors.Is(errno, syscall.ENETUNREACH):
 			return New(ErrCodeNetworkUnreachable, CategoryNetwork, LevelError, "Network unreachable")
-		case syscall.ETIMEDOUT:
+		case errors.Is(errno, syscall.ETIMEDOUT):
 			return New(ErrCodeNetworkTimeout, CategoryNetwork, LevelError, "Connection timeout")
-		case syscall.ENOMEM:
+		case errors.Is(errno, syscall.ENOMEM):
 			return New(ErrCodeSystemOutOfMemory, CategorySystem, LevelFatal, "Out of memory")
-		case syscall.EMFILE, syscall.ENFILE:
+		case errors.Is(errno, syscall.EMFILE), errors.Is(errno, syscall.ENFILE):
 			return New(ErrCodeSystemResourceLimit, CategorySystem, LevelError, "Too many open files")
 		}
 	}
-	
+
 	// 检查错误消息中的关键词
 	errorMsg := err.Error()
 	switch {
@@ -98,7 +102,7 @@ func (ec *ErrorConverter) convertBuiltin(err error) *MuxError {
 	case contains(errorMsg, "not enough", "insufficient"):
 		return New(ErrCodeBufferNotEnough, CategoryBuffer, LevelError, errorMsg)
 	}
-	
+
 	// 默认转换为系统未知错误
 	return New(ErrCodeSystemUnknown, CategorySystem, LevelError, errorMsg)
 }
@@ -367,8 +371,8 @@ func IsRetryable(err error) bool {
 	if muxErr, ok := err.(*MuxError); ok {
 		// 网络错误和临时系统错误通常可重试
 		return muxErr.Category == CategoryNetwork ||
-			   muxErr.Code == ErrCodeSystemResourceLimit ||
-			   muxErr.Code == ErrCodeBufferPoolEmpty
+			muxErr.Code == ErrCodeSystemResourceLimit ||
+			muxErr.Code == ErrCodeBufferPoolEmpty
 	}
 	return false
 }
@@ -379,7 +383,7 @@ func InitBuiltinConverters() {
 	RegisterConverter("*errors.errorString", func(err error) *MuxError {
 		return Convert(err) // 使用内置转换逻辑
 	})
-	
+
 	// 注册网络错误转换器
 	RegisterConverter("*net.OpError", func(err error) *MuxError {
 		if opErr, ok := err.(*net.OpError); ok {
@@ -393,7 +397,7 @@ func InitBuiltinConverters() {
 		}
 		return nil
 	})
-	
+
 	// 注册DNS错误转换器
 	RegisterConverter("*net.DNSError", func(err error) *MuxError {
 		if dnsErr, ok := err.(*net.DNSError); ok {

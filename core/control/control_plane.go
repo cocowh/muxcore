@@ -23,14 +23,14 @@ import (
 	"github.com/cocowh/muxcore/pkg/logger"
 )
 
-// ControlPlane 控制平面
-type ControlPlane struct {
-	configManager      *config.ConfigManager
+// Plane 控制平面
+type Plane struct {
+	configManager      *config.Manager
 	goroutinePool      *pool.GoroutinePool
 	bufferPool         *performance.BufferPool
 	connectionPool     *pool.ConnectionPool
 	detector           *detector.ProtocolDetector
-	observability      *observability.OptimizedObservability
+	observability      *observability.Observability
 	processorManager   *handler.ProcessorManager
 	messageBus         *bus.MessageBus
 	reliabilityManager *reliability.ReliabilityManager
@@ -44,18 +44,8 @@ type ControlPlane struct {
 	state  string
 }
 
-// New 创建新的控制平面实例
-func New(configPath string) (*ControlPlane, error) {
-	builder, err := NewControlPlaneBuilder(configPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create control plane builder: %w", err)
-	}
-
-	return builder.Build()
-}
-
 // Start 启动控制平面
-func (cp *ControlPlane) Start() error {
+func (cp *Plane) Start() error {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
 
@@ -88,8 +78,8 @@ func (cp *ControlPlane) Start() error {
 	return nil
 }
 
-// Stop 停止控制平面
-func (cp *ControlPlane) Stop() error {
+// Stop stops the control plane.
+func (cp *Plane) Stop() error {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
 
@@ -123,15 +113,15 @@ func (cp *ControlPlane) Stop() error {
 	return nil
 }
 
-// GetState 获取控制平面状态
-func (cp *ControlPlane) GetState() string {
+// GetState gets the control plane state
+func (cp *Plane) GetState() string {
 	cp.mu.RLock()
 	defer cp.mu.RUnlock()
 	return cp.state
 }
 
-// monitorLoop 监控循环
-func (cp *ControlPlane) monitorLoop() {
+// monitorLoop monitors the control plane health
+func (cp *Plane) monitorLoop() {
 	defer cp.wg.Done()
 
 	ticker := time.NewTicker(30 * time.Second)
@@ -147,8 +137,8 @@ func (cp *ControlPlane) monitorLoop() {
 	}
 }
 
-// performHealthCheck 执行健康检查
-func (cp *ControlPlane) performHealthCheck() {
+// performHealthCheck performs health check
+func (cp *Plane) performHealthCheck() {
 	// 记录健康检查指标
 	cp.observability.RecordMetric("health_check", 1, map[string]string{
 		"component": "control_plane",

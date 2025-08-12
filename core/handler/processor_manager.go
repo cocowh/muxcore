@@ -310,7 +310,7 @@ func (p *OptimizedProtocolProcessor) GetCacheStats() map[string]interface{} {
 	}
 }
 
-// ProcessorGroup 处理器组
+// ProcessorGroup processor group
 type ProcessorGroup struct {
 	Type             string
 	Handlers         []ProtocolHandler
@@ -322,22 +322,21 @@ type ProcessorGroup struct {
 	errorRecovery    string
 }
 
-// ProcessorManager 处理器管理器
+// ProcessorManager processor manager
 type ProcessorManager struct {
 	groups                map[string]*ProcessorGroup
 	mutex                 sync.RWMutex
 	loadBalancingStrategy LoadBalancingStrategy
 	config                *ProcessorConfig
-	// 每协议的轮询计数器，避免基于时间的取模偏斜
-	rrIndex map[string]uint64
+	rrIndex               map[string]uint64
 }
 
-// LoadBalancingStrategy 负载均衡策略
+// LoadBalancingStrategy load balancing strategy
 type LoadBalancingStrategy interface {
 	SelectProcessor(protocol string, groups map[string]*ProcessorGroup) *ProcessorGroup
 }
 
-// NewProcessorManager 创建处理器管理器
+// NewProcessorManager create a new processor manager
 func NewProcessorManager() *ProcessorManager {
 	m := &ProcessorManager{
 		groups:                make(map[string]*ProcessorGroup),
@@ -345,10 +344,10 @@ func NewProcessorManager() *ProcessorManager {
 		rrIndex:               make(map[string]uint64),
 	}
 
-	// 初始化处理器组
+	// init processor groups
 	m.initProcessorGroups()
 
-	// 启动指标收集
+	// start metrics collector
 	go m.metricsCollectorLoop()
 
 	return m

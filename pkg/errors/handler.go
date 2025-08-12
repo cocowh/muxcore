@@ -6,6 +6,7 @@ package errors
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"time"
@@ -13,25 +14,25 @@ import (
 	"github.com/cocowh/muxcore/pkg/logger"
 )
 
-// ErrorHandler 错误处理器接口
+// ErrorHandler error handler interface
 type ErrorHandler interface {
 	Handle(ctx context.Context, err *MuxError) error
 	CanHandle(err *MuxError) bool
 	Priority() int
 }
 
-// ErrorReporter 错误报告器接口
+// ErrorReporter error reporter interface
 type ErrorReporter interface {
 	Report(ctx context.Context, err *MuxError) error
 }
 
-// ErrorRecovery 错误恢复器接口
+// ErrorRecovery error recovery interface
 type ErrorRecovery interface {
 	Recover(ctx context.Context, err *MuxError) error
 	CanRecover(err *MuxError) bool
 }
 
-// ErrorManager 错误管理器
+// ErrorManager error manager
 type ErrorManager struct {
 	handlers   []ErrorHandler
 	reporters  []ErrorReporter
@@ -40,7 +41,7 @@ type ErrorManager struct {
 	mutex      sync.RWMutex
 }
 
-// ErrorMetrics 错误指标
+// ErrorMetrics error metrics
 type ErrorMetrics struct {
 	TotalErrors      int64                   `json:"total_errors"`
 	ErrorsByCode     map[ErrorCode]int64     `json:"errors_by_code"`
@@ -51,7 +52,7 @@ type ErrorMetrics struct {
 	mutex            sync.RWMutex
 }
 
-// NewErrorManager 创建错误管理器
+// NewErrorManager create a new error manager
 func NewErrorManager() *ErrorManager {
 	return &ErrorManager{
 		handlers:   make([]ErrorHandler, 0),
@@ -65,12 +66,11 @@ func NewErrorManager() *ErrorManager {
 	}
 }
 
-// RegisterHandler 注册错误处理器
+// RegisterHandler register a new error handler
 func (em *ErrorManager) RegisterHandler(handler ErrorHandler) {
 	em.mutex.Lock()
 	defer em.mutex.Unlock()
 
-	// 按优先级插入
 	inserted := false
 	for i, h := range em.handlers {
 		if handler.Priority() > h.Priority() {
@@ -84,29 +84,26 @@ func (em *ErrorManager) RegisterHandler(handler ErrorHandler) {
 	}
 }
 
-// RegisterReporter 注册错误报告器
+// RegisterReporter register a new error reporter
 func (em *ErrorManager) RegisterReporter(reporter ErrorReporter) {
 	em.mutex.Lock()
 	defer em.mutex.Unlock()
 	em.reporters = append(em.reporters, reporter)
 }
 
-// RegisterRecovery 注册错误恢复器
+// RegisterRecovery register a new error recovery
 func (em *ErrorManager) RegisterRecovery(recovery ErrorRecovery) {
 	em.mutex.Lock()
 	defer em.mutex.Unlock()
 	em.recoveries = append(em.recoveries, recovery)
 }
 
-// Handle 处理错误
+// Handle error and return a new error
 func (em *ErrorManager) Handle(ctx context.Context, err error) error {
 	var muxErr *MuxError
-
-	// 转换为MuxError
-	if me, ok := err.(*MuxError); ok {
+	var me *MuxError
+	if errors.As(err, &me) {
 		muxErr = me
-	} else {
-		muxErr = Wrap(err, ErrCodeSystemUnknown, CategorySystem, LevelError, "Unknown error")
 	}
 
 	// 更新指标
@@ -133,7 +130,7 @@ func (em *ErrorManager) Handle(ctx context.Context, err error) error {
 	return muxErr
 }
 
-// updateMetrics 更新错误指标
+// updateMetrics updates the error metrics.
 func (em *ErrorManager) updateMetrics(err *MuxError) {
 	em.metrics.mutex.Lock()
 	defer em.metrics.mutex.Unlock()
@@ -146,7 +143,7 @@ func (em *ErrorManager) updateMetrics(err *MuxError) {
 	em.metrics.LastErrorTime = time.Now()
 }
 
-// logError 记录错误日志
+// logError logs the error with the appropriate log level.
 func (em *ErrorManager) logError(err *MuxError) {
 	switch err.Level {
 	case LevelTrace:
@@ -170,7 +167,7 @@ func (em *ErrorManager) logError(err *MuxError) {
 	}
 }
 
-// tryRecover 尝试错误恢复
+// tryRecover tries to recover from the error using registered recoveries.
 func (em *ErrorManager) tryRecover(ctx context.Context, err *MuxError) error {
 	em.mutex.RLock()
 	recoveries := make([]ErrorRecovery, len(em.recoveries))
@@ -190,7 +187,7 @@ func (em *ErrorManager) tryRecover(ctx context.Context, err *MuxError) error {
 	return nil
 }
 
-// handleError 处理错误
+// handleError handle error.
 func (em *ErrorManager) handleError(ctx context.Context, err *MuxError) error {
 	em.mutex.RLock()
 	handlers := make([]ErrorHandler, len(em.handlers))
@@ -209,7 +206,7 @@ func (em *ErrorManager) handleError(ctx context.Context, err *MuxError) error {
 	return nil
 }
 
-// reportError 报告错误
+// reportError report error.
 func (em *ErrorManager) reportError(ctx context.Context, err *MuxError) error {
 	em.mutex.RLock()
 	reporters := make([]ErrorReporter, len(em.reporters))
@@ -226,12 +223,11 @@ func (em *ErrorManager) reportError(ctx context.Context, err *MuxError) error {
 	return nil
 }
 
-// GetMetrics 获取错误指标
+// GetMetrics get error metrics.
 func (em *ErrorManager) GetMetrics() *ErrorMetrics {
 	em.metrics.mutex.RLock()
 	defer em.metrics.mutex.RUnlock()
 
-	// 深拷贝指标
 	metrics := &ErrorMetrics{
 		TotalErrors:      em.metrics.TotalErrors,
 		ErrorsByCode:     make(map[ErrorCode]int64),
@@ -254,7 +250,7 @@ func (em *ErrorManager) GetMetrics() *ErrorMetrics {
 	return metrics
 }
 
-// ResetMetrics 重置错误指标
+// ResetMetrics reset the global error metrics.
 func (em *ErrorManager) ResetMetrics() {
 	em.metrics.mutex.Lock()
 	defer em.metrics.mutex.Unlock()
@@ -267,35 +263,34 @@ func (em *ErrorManager) ResetMetrics() {
 	em.metrics.LastErrorTime = time.Time{}
 }
 
-// 全局错误管理器实例
 var globalErrorManager = NewErrorManager()
 
-// Handle 全局错误处理函数
+// Handle error and return the error.
 func Handle(ctx context.Context, err error) error {
 	return globalErrorManager.Handle(ctx, err)
 }
 
-// RegisterHandler 注册全局错误处理器
+// RegisterHandler register global error handler.
 func RegisterHandler(handler ErrorHandler) {
 	globalErrorManager.RegisterHandler(handler)
 }
 
-// RegisterReporter 注册全局错误报告器
+// RegisterReporter register global error reporter.
 func RegisterReporter(reporter ErrorReporter) {
 	globalErrorManager.RegisterReporter(reporter)
 }
 
-// RegisterRecovery 注册全局错误恢复器
+// RegisterRecovery register global error recovery.
 func RegisterRecovery(recovery ErrorRecovery) {
 	globalErrorManager.RegisterRecovery(recovery)
 }
 
-// GetMetrics 获取全局错误指标
+// GetMetrics get the global error metrics.
 func GetMetrics() *ErrorMetrics {
 	return globalErrorManager.GetMetrics()
 }
 
-// ResetMetrics 重置全局错误指标
+// ResetMetrics reset the global error metrics.
 func ResetMetrics() {
 	globalErrorManager.ResetMetrics()
 }

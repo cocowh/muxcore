@@ -1,8 +1,5 @@
 server:
   address: ":8080"
-  read_timeout: 30
-  write_timeout: 30
-  idle_timeout: 60
 
 monitor:
   interval: 10  # 秒

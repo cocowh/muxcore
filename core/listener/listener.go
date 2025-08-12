@@ -1,3 +1,7 @@
+// Copyright (c) 2025 cocowh. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package listener
 
 import (
@@ -13,7 +17,7 @@ import (
 	"github.com/cocowh/muxcore/pkg/logger"
 )
 
-// Listener 监听传入连接并将其交给协议检测器
+// Listener listens for incoming network connections and manages them using a connection pool.
 type Listener struct {
 	addr          string
 	listener      net.Listener
@@ -26,7 +30,7 @@ type Listener struct {
 	cancel        context.CancelFunc
 }
 
-// New 创建一个新的Listener
+// New creates a new Listener instance.
 func New(addr string, detector *detector.ProtocolDetector, pool *pool.ConnectionPool, goroutinePool *pool.GoroutinePool, bufferPool *performance.BufferPool) *Listener {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Listener{
@@ -40,7 +44,7 @@ func New(addr string, detector *detector.ProtocolDetector, pool *pool.Connection
 	}
 }
 
-// Start 开始监听连接
+// Start starts the listener.
 func (l *Listener) Start() error {
 	var err error
 	l.listener, err = net.Listen("tcp", l.addr)
@@ -58,7 +62,7 @@ func (l *Listener) Start() error {
 	return nil
 }
 
-// Stop 停止监听
+// Stop stops the listener.
 func (l *Listener) Stop() {
 	l.cancel()
 	if l.listener != nil {
@@ -68,7 +72,7 @@ func (l *Listener) Stop() {
 	logger.Info("Stopped listening")
 }
 
-// acceptLoop 接受连接循环
+// acceptLoop accepts connections and adds them to the connection pool
 func (l *Listener) acceptLoop() {
 	defer l.wg.Done()
 

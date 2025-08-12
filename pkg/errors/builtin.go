@@ -12,12 +12,12 @@ import (
 	"github.com/cocowh/muxcore/pkg/logger"
 )
 
-// LoggingErrorHandler 日志错误处理器
+// LoggingErrorHandler logging error handler
 type LoggingErrorHandler struct {
 	priority int
 }
 
-// NewLoggingErrorHandler 创建日志错误处理器
+// NewLoggingErrorHandler create a new logging error handler
 func NewLoggingErrorHandler(priority int) *LoggingErrorHandler {
 	return &LoggingErrorHandler{
 		priority: priority,
@@ -38,7 +38,7 @@ func (h *LoggingErrorHandler) Priority() int {
 	return h.priority
 }
 
-// CircuitBreakerErrorHandler 熔断错误处理器
+// CircuitBreakerErrorHandler circuit breaker error handler
 type CircuitBreakerErrorHandler struct {
 	priority         int
 	failureThreshold int
@@ -48,7 +48,7 @@ type CircuitBreakerErrorHandler struct {
 	isOpen           bool
 }
 
-// NewCircuitBreakerErrorHandler 创建熔断错误处理器
+// NewCircuitBreakerErrorHandler create a new circuit breaker error handler
 func NewCircuitBreakerErrorHandler(priority, failureThreshold int, resetTimeout time.Duration) *CircuitBreakerErrorHandler {
 	return &CircuitBreakerErrorHandler{
 		priority:         priority,
@@ -58,21 +58,20 @@ func NewCircuitBreakerErrorHandler(priority, failureThreshold int, resetTimeout 
 }
 
 func (h *CircuitBreakerErrorHandler) Handle(ctx context.Context, err *MuxError) error {
-	// 记录失败
+	// record failure count and last failure time
 	h.failureCount++
 	h.lastFailureTime = time.Now()
-	
-	// 检查是否需要打开熔断器
+
+	// check if circuit breaker should be opened
 	if h.failureCount >= h.failureThreshold {
 		h.isOpen = true
 		logger.Warnf("Circuit breaker opened due to error: %s", err.Error())
 	}
-	
+
 	return nil
 }
 
 func (h *CircuitBreakerErrorHandler) CanHandle(err *MuxError) bool {
-	// 只处理网络和系统错误
 	return err.Category == CategoryNetwork || err.Category == CategorySystem
 }
 
@@ -80,9 +79,9 @@ func (h *CircuitBreakerErrorHandler) Priority() int {
 	return h.priority
 }
 
-// IsOpen 检查熔断器是否打开
+// IsOpen check if circuit breaker is open
 func (h *CircuitBreakerErrorHandler) IsOpen() bool {
-	// 检查是否需要重置
+	// check if circuit breaker should be reset
 	if h.isOpen && time.Since(h.lastFailureTime) > h.resetTimeout {
 		h.isOpen = false
 		h.failureCount = 0
@@ -91,13 +90,13 @@ func (h *CircuitBreakerErrorHandler) IsOpen() bool {
 	return h.isOpen
 }
 
-// RetryErrorRecovery 重试错误恢复器
+// RetryErrorRecovery recovery from error
 type RetryErrorRecovery struct {
 	maxRetries int
 	retryDelay time.Duration
 }
 
-// NewRetryErrorRecovery 创建重试错误恢复器
+// NewRetryErrorRecovery create a new retry error recovery
 func NewRetryErrorRecovery(maxRetries int, retryDelay time.Duration) *RetryErrorRecovery {
 	return &RetryErrorRecovery{
 		maxRetries: maxRetries,
@@ -106,38 +105,34 @@ func NewRetryErrorRecovery(maxRetries int, retryDelay time.Duration) *RetryError
 }
 
 func (r *RetryErrorRecovery) Recover(ctx context.Context, err *MuxError) error {
-	// 从上下文中获取重试次数
 	retryCount := 0
 	if count, ok := err.Context["retry_count"]; ok {
 		if c, ok := count.(int); ok {
 			retryCount = c
 		}
 	}
-	
+
 	if retryCount >= r.maxRetries {
 		return fmt.Errorf("max retries exceeded: %d", r.maxRetries)
 	}
-	
-	// 等待重试延迟
+
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-time.After(r.retryDelay):
-		// 继续重试
 	}
-	
-	// 更新重试次数
+
 	err.WithContext("retry_count", retryCount+1)
 	logger.Infof("Retrying operation, attempt %d/%d", retryCount+1, r.maxRetries)
-	
-	return nil
+
+	return err
 }
 
 func (r *RetryErrorRecovery) CanRecover(err *MuxError) bool {
 	// 只恢复网络和临时错误
-	return err.Category == CategoryNetwork || 
-		   err.Code == ErrCodeSystemResourceLimit ||
-		   err.Code == ErrCodeBufferPoolEmpty
+	return err.Category == CategoryNetwork ||
+		err.Code == ErrCodeSystemResourceLimit ||
+		err.Code == ErrCodeBufferPoolEmpty
 }
 
 // MetricsErrorReporter 指标错误报告器
@@ -158,11 +153,11 @@ func (r *MetricsErrorReporter) Report(ctx context.Context, err *MuxError) error 
 	r.metrics["last_error_category"] = err.Category
 	r.metrics["last_error_level"] = err.Level
 	r.metrics["last_error_time"] = err.Timestamp
-	
+
 	// 这里可以集成到Prometheus或其他指标系统
-	logger.Debugf("Error metrics updated: code=%d, category=%s, level=%d", 
+	logger.Debugf("Error metrics updated: code=%d, category=%s, level=%d",
 		err.Code, err.Category, err.Level)
-	
+
 	return nil
 }
 
@@ -181,9 +176,9 @@ func NewAlertErrorReporter(alertThreshold ErrorLevel) *AlertErrorReporter {
 func (r *AlertErrorReporter) Report(ctx context.Context, err *MuxError) error {
 	if err.Level >= r.alertThreshold {
 		// 发送告警
-		logger.Errorf("ALERT: Critical error occurred - [%s:%d] %s", 
+		logger.Errorf("ALERT: Critical error occurred - [%s:%d] %s",
 			err.Category, err.Code, err.Message)
-		
+
 		// 这里可以集成到告警系统，如邮件、短信、Slack等
 		// 例如：sendAlert(err)
 	}
@@ -207,7 +202,7 @@ func NewGracefulShutdownErrorHandler(priority int, shutdownChannel chan struct{}
 func (h *GracefulShutdownErrorHandler) Handle(ctx context.Context, err *MuxError) error {
 	if err.Level == LevelFatal || err.Code == ErrCodeSystemShutdown {
 		logger.Errorf("Fatal error detected, initiating graceful shutdown: %s", err.Error())
-		
+
 		// 发送关闭信号
 		select {
 		case h.shutdownChannel <- struct{}{}:
@@ -247,7 +242,7 @@ func (r *ResourceCleanupErrorRecovery) AddCleanupFunc(cleanup func() error) {
 
 func (r *ResourceCleanupErrorRecovery) Recover(ctx context.Context, err *MuxError) error {
 	logger.Infof("Starting resource cleanup due to error: %s", err.Error())
-	
+
 	for i, cleanup := range r.cleanupFuncs {
 		if cleanupErr := cleanup(); cleanupErr != nil {
 			logger.Errorf("Cleanup function %d failed: %v", i, cleanupErr)
@@ -256,40 +251,40 @@ func (r *ResourceCleanupErrorRecovery) Recover(ctx context.Context, err *MuxErro
 			logger.Debugf("Cleanup function %d completed successfully", i)
 		}
 	}
-	
+
 	logger.Infof("Resource cleanup completed")
 	return nil
 }
 
 func (r *ResourceCleanupErrorRecovery) CanRecover(err *MuxError) bool {
 	// 对于系统错误和内存错误进行资源清理
-	return err.Category == CategorySystem || 
-		   err.Code == ErrCodeSystemOutOfMemory ||
-		   err.Code == ErrCodeSystemResourceLimit
+	return err.Category == CategorySystem ||
+		err.Code == ErrCodeSystemOutOfMemory ||
+		err.Code == ErrCodeSystemResourceLimit
 }
 
 // InitBuiltinHandlers 初始化内置错误处理器
 func InitBuiltinHandlers(shutdownChannel chan struct{}) {
 	// 注册日志处理器（最低优先级）
 	RegisterHandler(NewLoggingErrorHandler(0))
-	
+
 	// 注册熔断处理器
 	RegisterHandler(NewCircuitBreakerErrorHandler(100, 5, 30*time.Second))
-	
+
 	// 注册优雅关闭处理器（最高优先级）
 	RegisterHandler(NewGracefulShutdownErrorHandler(1000, shutdownChannel))
-	
+
 	// 注册重试恢复器
 	RegisterRecovery(NewRetryErrorRecovery(3, 1*time.Second))
-	
+
 	// 注册资源清理恢复器
 	RegisterRecovery(NewResourceCleanupErrorRecovery())
-	
+
 	// 注册指标报告器
 	RegisterReporter(NewMetricsErrorReporter())
-	
+
 	// 注册告警报告器（错误级别及以上）
 	RegisterReporter(NewAlertErrorReporter(LevelError))
-	
+
 	logger.Infof("Builtin error handlers initialized")
 }

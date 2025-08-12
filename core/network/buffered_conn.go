@@ -14,7 +14,7 @@ import (
 	"github.com/cocowh/muxcore/pkg/errors"
 )
 
-// BufferedConn 实现带缓冲的连接
+// BufferedConn net.Conn with buffer
 type BufferedConn struct {
 	net.Conn
 	buffer      *buffer.BytesBuffer

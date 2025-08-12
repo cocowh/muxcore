@@ -5,22 +5,22 @@
 package errors
 
 import (
+	"errors"
 	"fmt"
 	"runtime"
 	"strings"
 	"time"
 )
 
-// ErrorCode 错误码类型
+// ErrorCode error code
 type ErrorCode int
 
-// ErrorLevel 错误级别
+// ErrorLevel error level
 type ErrorLevel int
 
-// ErrorCategory 错误分类
+// ErrorCategory error category
 type ErrorCategory string
 
-// 错误级别定义
 const (
 	LevelTrace ErrorLevel = iota
 	LevelDebug
@@ -30,7 +30,6 @@ const (
 	LevelFatal
 )
 
-// 错误分类定义
 const (
 	CategorySystem     ErrorCategory = "system"     // 系统错误
 	CategoryNetwork    ErrorCategory = "network"    // 网络错误
@@ -45,7 +44,7 @@ const (
 	CategorySecurity   ErrorCategory = "security"   // 安全错误
 )
 
-// 系统错误码 (1000-1999)
+// system error code (1000-1999)
 const (
 	ErrCodeSystemUnknown       ErrorCode = 1000
 	ErrCodeSystemOutOfMemory   ErrorCode = 1001
@@ -55,7 +54,7 @@ const (
 	ErrCodeSystemPanic         ErrorCode = 1005
 )
 
-// 网络错误码 (2000-2999)
+// network error code (2000-2999)
 const (
 	ErrCodeNetworkUnknown        ErrorCode = 2000
 	ErrCodeNetworkTimeout        ErrorCode = 2001
@@ -65,7 +64,7 @@ const (
 	ErrCodeNetworkTLSError       ErrorCode = 2005
 )
 
-// 协议错误码 (3000-3999)
+// protocol error code (3000-3999)
 const (
 	ErrCodeProtocolUnknown      ErrorCode = 3000
 	ErrCodeProtocolInvalid      ErrorCode = 3001
@@ -74,7 +73,7 @@ const (
 	ErrCodeProtocolParseError   ErrorCode = 3004
 )
 
-// 缓冲区错误码 (4000-4999)
+// buffer error code (4000-4999)
 const (
 	ErrCodeBufferUnknown   ErrorCode = 4000
 	ErrCodeBufferNotEnough ErrorCode = 4001
@@ -83,7 +82,7 @@ const (
 	ErrCodeBufferPoolEmpty ErrorCode = 4004
 )
 
-// 配置错误码 (5000-5999)
+// config error code (5000-5999)
 const (
 	ErrCodeConfigUnknown    ErrorCode = 5000
 	ErrCodeConfigNotFound   ErrorCode = 5001
@@ -92,7 +91,7 @@ const (
 	ErrCodeConfigValidation ErrorCode = 5004
 )
 
-// 认证错误码 (6000-6999)
+// auth error code (6000-6999)
 const (
 	ErrCodeAuthUnknown      ErrorCode = 6000
 	ErrCodeAuthUnauthorized ErrorCode = 6001
@@ -101,7 +100,7 @@ const (
 	ErrCodeAuthTokenInvalid ErrorCode = 6004
 )
 
-// 验证错误码 (7000-7999)
+// validation error code (7000-7999)
 const (
 	ErrCodeValidationUnknown   ErrorCode = 7000
 	ErrCodeValidationRequired  ErrorCode = 7001
@@ -110,7 +109,7 @@ const (
 	ErrCodeValidationDuplicate ErrorCode = 7004
 )
 
-// 业务错误码 (8000-8999)
+// business error code (8000-8999)
 const (
 	ErrCodeBusinessUnknown       ErrorCode = 8000
 	ErrCodeBusinessLogicError    ErrorCode = 8001
@@ -118,7 +117,7 @@ const (
 	ErrCodeBusinessRuleViolation ErrorCode = 8003
 )
 
-// WASM错误码 (9000-9999)
+// WASM error code (9000-9999)
 const (
 	ErrCodeWASMUnknown          ErrorCode = 9000
 	ErrCodeWASMCompileError     ErrorCode = 9001
@@ -127,7 +126,7 @@ const (
 	ErrCodeWASMFunctionNotFound ErrorCode = 9004
 )
 
-// 治理错误码 (10000-10999)
+// Governance error code (10000-10999)
 const (
 	ErrCodeGovernanceUnknown         ErrorCode = 10000
 	ErrCodeGovernancePolicyViolation ErrorCode = 10001
@@ -136,7 +135,6 @@ const (
 	ErrCodeGovernanceLoadBalancer    ErrorCode = 10004
 )
 
-// MuxError 统一错误结构
 type MuxError struct {
 	Code      ErrorCode              `json:"code"`
 	Message   string                 `json:"message"`
@@ -148,7 +146,7 @@ type MuxError struct {
 	Context   map[string]interface{} `json:"context,omitempty"`
 }
 
-// Error 实现error接口
+// Error implements error interface
 func (e *MuxError) Error() string {
 	if e.Cause != nil {
 		return fmt.Sprintf("[%s:%d] %s: %v", e.Category, e.Code, e.Message, e.Cause)
@@ -163,13 +161,14 @@ func (e *MuxError) Unwrap() error {
 
 // Is 实现errors.Is接口
 func (e *MuxError) Is(target error) bool {
-	if t, ok := target.(*MuxError); ok {
+	var t *MuxError
+	if errors.As(target, &t) {
 		return e.Code == t.Code
 	}
 	return false
 }
 
-// WithContext 添加上下文信息
+// WithContext with context
 func (e *MuxError) WithContext(key string, value interface{}) *MuxError {
 	if e.Context == nil {
 		e.Context = make(map[string]interface{})
@@ -178,13 +177,13 @@ func (e *MuxError) WithContext(key string, value interface{}) *MuxError {
 	return e
 }
 
-// WithCause 添加原因错误
+// WithCause with cause
 func (e *MuxError) WithCause(cause error) *MuxError {
 	e.Cause = cause
 	return e
 }
 
-// New 创建新的错误
+// New create error
 func New(code ErrorCode, category ErrorCategory, level ErrorLevel, message string) *MuxError {
 	return &MuxError{
 		Code:      code,
@@ -196,12 +195,12 @@ func New(code ErrorCode, category ErrorCategory, level ErrorLevel, message strin
 	}
 }
 
-// Newf 创建格式化错误
+// Newf create error with format message
 func Newf(code ErrorCode, category ErrorCategory, level ErrorLevel, format string, args ...interface{}) *MuxError {
 	return New(code, category, level, fmt.Sprintf(format, args...))
 }
 
-// Wrap 包装现有错误
+// Wrap existing error with code, category, level and message
 func Wrap(err error, code ErrorCode, category ErrorCategory, level ErrorLevel, message string) *MuxError {
 	return &MuxError{
 		Code:      code,
@@ -214,30 +213,28 @@ func Wrap(err error, code ErrorCode, category ErrorCategory, level ErrorLevel, m
 	}
 }
 
-// Wrapf 包装现有错误并格式化消息
+// Wrapf wrap existing error with code, category, level and format message
 func Wrapf(err error, code ErrorCode, category ErrorCategory, level ErrorLevel, format string, args ...interface{}) *MuxError {
 	return Wrap(err, code, category, level, fmt.Sprintf(format, args...))
 }
 
-// getStack 获取调用栈
+// getStack get error stack
 func getStack() string {
 	var buf [4096]byte
 	n := runtime.Stack(buf[:], false)
 	stack := string(buf[:n])
 
-	// 过滤掉错误处理相关的栈帧
 	lines := strings.Split(stack, "\n")
 	filtered := make([]string, 0, len(lines))
 
 	for i := 0; i < len(lines); i++ {
-		// 过滤掉 runtime.Stack, getStack, New, Newf, Wrap, Wrapf 相关的堆栈
 		if strings.Contains(lines[i], "runtime.Stack") ||
 			strings.Contains(lines[i], "muxcore/pkg/errors.getStack") ||
 			(strings.Contains(lines[i], "muxcore/pkg/errors.New") && i+1 < len(lines)) ||
 			(strings.Contains(lines[i], "muxcore/pkg/errors.Newf") && i+1 < len(lines)) ||
 			(strings.Contains(lines[i], "muxcore/pkg/errors.Wrap") && i+1 < len(lines)) ||
 			(strings.Contains(lines[i], "muxcore/pkg/errors.Wrapf") && i+1 < len(lines)) {
-			i++ // 跳过下一行，因为每个函数调用在堆栈中占两行
+			i++
 			continue
 		}
 		filtered = append(filtered, lines[i])
@@ -246,10 +243,10 @@ func getStack() string {
 	return strings.Join(filtered, "\n")
 }
 
-// GetErrorMessage 根据错误码获取默认错误消息
+// GetErrorMessage get error message by error code
 func GetErrorMessage(code ErrorCode) string {
 	switch code {
-	// 系统错误
+	// system errors
 	case ErrCodeSystemUnknown:
 		return "Unknown system error"
 	case ErrCodeSystemOutOfMemory:
@@ -261,7 +258,7 @@ func GetErrorMessage(code ErrorCode) string {
 	case ErrCodeSystemShutdown:
 		return "System is shutting down"
 
-	// 网络错误
+	// network errors
 	case ErrCodeNetworkUnknown:
 		return "Unknown network error"
 	case ErrCodeNetworkTimeout:
@@ -275,7 +272,7 @@ func GetErrorMessage(code ErrorCode) string {
 	case ErrCodeNetworkTLSError:
 		return "TLS/SSL error"
 
-	// 协议错误
+	// protocol errors
 	case ErrCodeProtocolUnknown:
 		return "Unknown protocol error"
 	case ErrCodeProtocolInvalid:
@@ -287,7 +284,7 @@ func GetErrorMessage(code ErrorCode) string {
 	case ErrCodeProtocolParseError:
 		return "Protocol parse error"
 
-	// 缓冲区错误
+	// buffer errors
 	case ErrCodeBufferUnknown:
 		return "Unknown buffer error"
 	case ErrCodeBufferNotEnough:
@@ -299,7 +296,7 @@ func GetErrorMessage(code ErrorCode) string {
 	case ErrCodeBufferPoolEmpty:
 		return "Buffer pool empty"
 
-	// 配置错误
+	// config errors
 	case ErrCodeConfigUnknown:
 		return "Unknown config error"
 	case ErrCodeConfigNotFound:
@@ -311,7 +308,7 @@ func GetErrorMessage(code ErrorCode) string {
 	case ErrCodeConfigValidation:
 		return "Config validation error"
 
-	// 认证错误
+	// auth errors
 	case ErrCodeAuthUnknown:
 		return "Unknown auth error"
 	case ErrCodeAuthUnauthorized:
@@ -323,7 +320,7 @@ func GetErrorMessage(code ErrorCode) string {
 	case ErrCodeAuthTokenInvalid:
 		return "Invalid token"
 
-	// 验证错误
+	// validation errors
 	case ErrCodeValidationUnknown:
 		return "Unknown validation error"
 	case ErrCodeValidationRequired:
@@ -335,7 +332,7 @@ func GetErrorMessage(code ErrorCode) string {
 	case ErrCodeValidationDuplicate:
 		return "Duplicate value"
 
-	// 业务错误
+	// business errors
 	case ErrCodeBusinessUnknown:
 		return "Unknown business error"
 	case ErrCodeBusinessLogicError:
@@ -345,7 +342,7 @@ func GetErrorMessage(code ErrorCode) string {
 	case ErrCodeBusinessRuleViolation:
 		return "Business rule violation"
 
-	// WASM错误
+	// WASM errors
 	case ErrCodeWASMUnknown:
 		return "Unknown WASM error"
 	case ErrCodeWASMCompileError:
@@ -357,7 +354,7 @@ func GetErrorMessage(code ErrorCode) string {
 	case ErrCodeWASMFunctionNotFound:
 		return "WASM function not found"
 
-	// 治理错误
+	// governance errors
 	case ErrCodeGovernanceUnknown:
 		return "Unknown governance error"
 	case ErrCodeGovernancePolicyViolation:
@@ -374,7 +371,7 @@ func GetErrorMessage(code ErrorCode) string {
 	}
 }
 
-// GetErrorCategory 根据错误码获取错误分类
+// GetErrorCategory returns the error category for the given error code.
 func GetErrorCategory(code ErrorCode) ErrorCategory {
 	switch {
 	case code >= 1000 && code < 2000:

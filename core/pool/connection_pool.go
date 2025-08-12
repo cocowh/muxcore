@@ -1,3 +1,7 @@
+// Copyright (c) 2025 cocowh. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package pool
 
 import (
@@ -9,7 +13,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// Connection 表示一个连接及其状态
+// Connection a connection
 type Connection struct {
 	ID       string
 	Conn     net.Conn
@@ -18,20 +22,20 @@ type Connection struct {
 	IsActive bool
 }
 
-// ConnectionPool 连接池
+// ConnectionPool connection pool
 type ConnectionPool struct {
 	connections map[string]*Connection
 	mutex       sync.RWMutex
 }
 
-// New 创建一个新的ConnectionPool
+// New create a new connection pool
 func New() *ConnectionPool {
 	return &ConnectionPool{
 		connections: make(map[string]*Connection),
 	}
 }
 
-// AddConnection 添加一个新连接到池中
+// AddConnection add connection to pool
 func (p *ConnectionPool) AddConnection(conn net.Conn) string {
 	id := uuid.New().String()
 	connection := &Connection{
@@ -49,7 +53,7 @@ func (p *ConnectionPool) AddConnection(conn net.Conn) string {
 	return id
 }
 
-// GetConnection 从池中获取连接
+// GetConnection get connection from pool
 func (p *ConnectionPool) GetConnection(id string) (*Connection, bool) {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
@@ -58,19 +62,22 @@ func (p *ConnectionPool) GetConnection(id string) (*Connection, bool) {
 	return conn, exists
 }
 
-// RemoveConnection 从池中移除连接
+// RemoveConnection remove connection from pool
 func (p *ConnectionPool) RemoveConnection(id string) {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
 
 	if conn, exists := p.connections[id]; exists {
-		conn.Conn.Close()
+		err := conn.Conn.Close()
+		if err != nil {
+			logger.Error("Failed to close connection: ", id)
+		}
 		delete(p.connections, id)
 		logger.Debug("Removed connection from pool: ", id)
 	}
 }
 
-// UpdateConnectionProtocol 更新连接的协议信息
+// UpdateConnectionProtocol update connection protocol
 func (p *ConnectionPool) UpdateConnectionProtocol(id string, protocol string) bool {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
@@ -83,12 +90,12 @@ func (p *ConnectionPool) UpdateConnectionProtocol(id string, protocol string) bo
 	return false
 }
 
-// GetActiveConnections 获取所有活跃连接
+// GetActiveConnections get active connections
 func (p *ConnectionPool) GetActiveConnections() []*Connection {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
 
-	activeConns := []*Connection{}
+	var activeConns []*Connection
 	for _, conn := range p.connections {
 		if conn.IsActive {
 			activeConns = append(activeConns, conn)
@@ -97,7 +104,7 @@ func (p *ConnectionPool) GetActiveConnections() []*Connection {
 	return activeConns
 }
 
-// GetActiveConnectionCount 获取特定协议的活跃连接数
+// GetActiveConnectionCount get active connection count
 func (p *ConnectionPool) GetActiveConnectionCount(protocol string) int {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
@@ -111,7 +118,7 @@ func (p *ConnectionPool) GetActiveConnectionCount(protocol string) int {
 	return count
 }
 
-// Close 关闭连接池
+// Close the connection pool
 func (p *ConnectionPool) Close() {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()

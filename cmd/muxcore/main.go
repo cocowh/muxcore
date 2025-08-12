@@ -10,7 +10,6 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/cocowh/muxcore/core/config"
 	"github.com/cocowh/muxcore/core/control"
 	"github.com/cocowh/muxcore/pkg/logger"
 	"github.com/spf13/cobra"
@@ -50,27 +49,10 @@ var versionCmd = &cobra.Command{
 	},
 }
 
-// configCmd represents the config command
-var configCmd = &cobra.Command{
-	Use:   "config",
-	Short: "Configuration management commands",
-	Long:  `Commands for managing MuxCore configuration files.`,
-}
-
-// validateConfigCmd represents the validate config command
-var validateConfigCmd = &cobra.Command{
-	Use:   "validate",
-	Short: "Validate configuration file",
-	Long:  `Validate the syntax and semantics of a MuxCore configuration file.`,
-	RunE:  validateConfig,
-}
-
 func init() {
 	// Add subcommands
 	rootCmd.AddCommand(serveCmd)
 	rootCmd.AddCommand(versionCmd)
-	rootCmd.AddCommand(configCmd)
-	configCmd.AddCommand(validateConfigCmd)
 
 	// Global flags
 	rootCmd.PersistentFlags().StringVarP(&configPath, "config", "c", "config.yaml", "path to configuration file")
@@ -81,13 +63,10 @@ func init() {
 	serveCmd.Flags().StringP("address", "a", ":8080", "server listen address")
 	serveCmd.Flags().StringP("cert", "", "", "TLS certificate file")
 	serveCmd.Flags().StringP("key", "", "", "TLS private key file")
-
-	// Validate command flags
-	validateConfigCmd.Flags().StringVarP(&configPath, "file", "f", "config.yaml", "configuration file to validate")
 }
 
 func runServer(cmd *cobra.Command, args []string) error {
-	// 创建控制平面构建器并初始化日志系统
+	// create control plane builder with log config
 	builder, err := control.NewControlPlaneBuilderWithLogConfig(configPath, logLevel, verbose)
 	if err != nil {
 		return fmt.Errorf("failed to create control plane builder: %w", err)
@@ -96,7 +75,7 @@ func runServer(cmd *cobra.Command, args []string) error {
 	logger.Info("Starting MuxCore server...")
 	logger.Infof("Using configuration file: %s", configPath)
 
-	// 构建控制平面
+	// build control plane
 	controlPlane, err := builder.Build()
 	if err != nil {
 		return fmt.Errorf("failed to build control plane: %w", err)
@@ -104,92 +83,27 @@ func runServer(cmd *cobra.Command, args []string) error {
 
 	logger.Info("Control plane created successfully")
 
-	// 启动控制平面
+	// start control plane
 	if err := controlPlane.Start(); err != nil {
 		return fmt.Errorf("failed to start control plane: %w", err)
 	}
 
 	logger.Info("MuxCore server started successfully")
 
-	// 等待中断信号
+	// wait for signal
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 
 	logger.Info("Shutting down MuxCore server...")
 
-	// 停止控制平面
+	// stop control plane
 	if err := controlPlane.Stop(); err != nil {
 		logger.Errorf("Error during shutdown: %v", err)
 		return err
 	}
 
 	logger.Info("MuxCore server stopped gracefully")
-	return nil
-}
-
-func validateConfig(cmd *cobra.Command, args []string) error {
-	// 基本日志配置用于验证过程
-	loggerConfig := &logger.Config{
-		Level:  logger.InfoLevel,
-		Format: "text",
-	}
-
-	if err := logger.InitDefaultLogger(loggerConfig); err != nil {
-		return fmt.Errorf("failed to initialize logger: %w", err)
-	}
-
-	logger.Infof("Validating configuration file: %s", configPath)
-
-	// 实现配置验证逻辑
-	configManager, err := config.NewConfigManager(configPath)
-	if err != nil {
-		logger.Errorf("Configuration validation failed: %v", err)
-		return fmt.Errorf("configuration validation failed: %w", err)
-	}
-
-	// 验证关键配置项
-	serverConfig := configManager.GetServerConfig()
-	if serverConfig.Address == "" {
-		return fmt.Errorf("server address cannot be empty")
-	}
-
-	protocolConfig := configManager.GetProtocolConfig()
-	if !protocolConfig.HTTP.Enabled && !protocolConfig.WebSocket.Enabled && !protocolConfig.GRPC.Enabled {
-		return fmt.Errorf("at least one protocol must be enabled")
-	}
-
-	poolConfig := configManager.GetPoolConfig()
-	if poolConfig.Connection.MaxSize <= 0 {
-		return fmt.Errorf("connection pool max size must be positive")
-	}
-	if poolConfig.Goroutine.QueueSize <= 0 {
-		return fmt.Errorf("goroutine pool queue size must be positive")
-	}
-
-	reliabilityConfig := configManager.GetReliabilityConfig()
-	if reliabilityConfig.CircuitBreaker.FailureThreshold < 0 || reliabilityConfig.CircuitBreaker.FailureThreshold > 1 {
-		return fmt.Errorf("circuit breaker failure threshold must be between 0 and 1")
-	}
-
-	observabilityConfig := configManager.GetObservabilityConfig()
-	if observabilityConfig.SamplingRate < 0 || observabilityConfig.SamplingRate > 1 {
-		return fmt.Errorf("observability sampling rate must be between 0 and 1")
-	}
-
-	securityConfig := configManager.GetSecurityConfig()
-	if securityConfig.SecurityLevel < 0 || securityConfig.SecurityLevel > 3 {
-		return fmt.Errorf("security level must be between 0 and 3")
-	}
-
-	logger.Info("Configuration validation completed successfully")
-	logger.Info("✓ Server configuration valid")
-	logger.Info("✓ Protocol configuration valid")
-	logger.Info("✓ Pool configuration valid")
-	logger.Info("✓ Reliability configuration valid")
-	logger.Info("✓ Observability configuration valid")
-	logger.Info("✓ Security configuration valid")
-
 	return nil
 }
 
