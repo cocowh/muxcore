@@ -1,3 +1,7 @@
+// Copyright (c) 2025 cocowh. All rights reserved.
+// Use of this source code is governed by a MIT-style
+// license that can be found in the LICENSE file.
+
 package http
 
 import (
@@ -11,7 +15,6 @@ import (
 	"time"
 
 	"github.com/cocowh/muxcore/core/handler"
-	"github.com/cocowh/muxcore/core/observability"
 	"github.com/cocowh/muxcore/core/pool"
 	"github.com/cocowh/muxcore/core/router"
 	"github.com/cocowh/muxcore/pkg/errors"
@@ -69,15 +72,15 @@ func (h *HTTPHandler) buildMiddlewareChain(handler http.Handler) http.Handler {
 // Handle 处理HTTP连接
 func (h *HTTPHandler) Handle(connID string, conn net.Conn, initialData []byte) {
 	// 记录连接建立
-	observability.RecordConnection("http", "established")
+	//observability.RecordConnection("http", "established")
 
 	// 连接协议已通过协议检测确定为http
 
 	// 记录活跃连接数（通过observability模块）
-	observability.SetActiveConnections("http", 1)
+	//observability.SetActiveConnections("http", 1)
 
 	// 记录请求开始时间
-	startTime := time.Now()
+	//startTime := time.Now()
 
 	// 创建一个HTTP请求解析器
 	reader := strings.NewReader(string(initialData))
@@ -87,13 +90,13 @@ func (h *HTTPHandler) Handle(connID string, conn net.Conn, initialData []byte) {
 		errors.Handle(context.Background(), muxErr)
 
 		// 记录失败请求
-		duration := time.Since(startTime).Seconds()
-		observability.RecordRequest("http", "", "400", duration)
+		//duration := time.Since(startTime).Seconds()
+		//observability.RecordRequest("http", "", "400", duration)
 
 		// 连接清理由连接管理器处理
 
 		// 更新活跃连接数
-		observability.SetActiveConnections("http", 0)
+		//observability.SetActiveConnections("http", 0)
 
 		return
 	}
@@ -131,21 +134,21 @@ func (h *HTTPHandler) Handle(connID string, conn net.Conn, initialData []byte) {
 	handler.ServeHTTP(w, req)
 
 	// 计算请求持续时间
-	duration := time.Since(startTime).Seconds()
+	//duration := time.Since(startTime).Seconds()
 
 	// 记录请求
 	statusCode := w.Status()
 	if statusCode == 0 {
 		statusCode = http.StatusOK
 	}
-	observability.RecordRequest("http", req.URL.Path, fmt.Sprintf("%d", statusCode), duration)
+	//observability.RecordRequest("http", req.URL.Path, fmt.Sprintf("%d", statusCode), duration)
 
 	// 检查连接是否需要保持
 	if !w.keepAlive {
 		// 连接清理由连接管理器处理
 
 		// 更新活跃连接数
-		observability.SetActiveConnections("http", 0)
+		//observability.SetActiveConnections("http", 0)
 	}
 }
 

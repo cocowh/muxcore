@@ -61,7 +61,6 @@ func NewRollingWriter(cfg *Config) io.Writer {
 		currentMark: mark,
 		maxBackups:  cfg.MaxBackups,
 		maxAgeDays:  cfg.MaxAgeDays,
-		file:        os.Stdout,
 		fileSize:    0,
 	}
 
@@ -145,8 +144,10 @@ func (r *RollingWriter) openExistOrNew() {
 		newFile, err := os.OpenFile(r.basePath, os.O_APPEND|os.O_WRONLY, 0644)
 		if err == nil {
 			// close old file
-			if err := r.file.Close(); err != nil {
-				log.Printf("Failed to close old log file: %v", err)
+			if r.file != os.Stdout && r.file != os.Stderr && r.file != nil {
+				if err := r.file.Close(); err != nil {
+					log.Printf("Failed to close old log file: %v", err)
+				}
 			}
 			// update file and size
 			r.file = newFile
@@ -162,16 +163,18 @@ func (r *RollingWriter) openExistOrNew() {
 	if err != nil {
 		log.Printf("Failed to create new log file: %v", err)
 		// if create failed, try to use standard error output
-		if r.file != os.Stdout {
+		if r.file != os.Stdout && r.file != os.Stderr && r.file != nil {
 			if err := r.file.Close(); err != nil {
 				log.Printf("Failed to close old log file: %v", err)
 			}
-			r.file = os.Stdout
 		}
+		r.file = os.Stdout
 	} else {
 		// close old file
-		if err := r.file.Close(); err != nil {
-			log.Printf("Failed to close old log file: %v", err)
+		if r.file != os.Stdout && r.file != os.Stderr && r.file != nil {
+			if err := r.file.Close(); err != nil {
+				log.Printf("Failed to close old log file: %v", err)
+			}
 		}
 		// update file and size
 		r.file = newFile

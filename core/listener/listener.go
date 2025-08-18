@@ -111,9 +111,8 @@ func (l *Listener) acceptLoop() {
 
 			// 使用goroutine池处理协议检测
 			connIDCopy := connID
-			bufConnCopy := bufConn
 			l.goroutinePool.Submit(func() {
-				l.detector.DetectProtocol(connIDCopy, bufConnCopy)
+				l.detector.DetectProtocol(connIDCopy, bufConn)
 			})
 		}
 	}

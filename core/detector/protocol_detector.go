@@ -7,6 +7,7 @@ package detector
 import (
 	"bytes"
 	"context"
+	"github.com/cocowh/muxcore/core/network"
 	"hash/fnv"
 	"net"
 	"strconv"
@@ -146,7 +147,7 @@ func (d *ProtocolDetector) RegisterHandler(protocol string, handler handler.Prot
 }
 
 // DetectProtocol 检测协议并分发给相应的处理器
-func (d *ProtocolDetector) DetectProtocol(connID string, conn net.Conn) {
+func (d *ProtocolDetector) DetectProtocol(connID string, conn *network.BufferedConn) {
 	// 设置读取超时（如果配置了）
 	if d.timeout > 0 {
 		_ = conn.SetReadDeadline(time.Now().Add(d.timeout))
